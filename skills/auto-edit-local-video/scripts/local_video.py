@@ -20,6 +20,15 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".mkv", ".webm"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_PROTOCOL = ROOT / "protocols/base-methodology.json"
+FILLER_REVIEW_PATTERNS = [
+    ("hesitation", re.compile(r"嗯+"), 0.85, "Hesitation sound; verify against audio before removing."),
+    ("hesitation", re.compile(r"(?:呃|额)+"), 0.85, "Hesitation sound; verify against audio before removing."),
+    ("repetition", re.compile(r"((?:然后|然後))\1+"), 0.92, "Adjacent repeated connector."),
+    ("repetition", re.compile(r"(就是)\1+"), 0.9, "Adjacent repeated phrase."),
+    ("repetition", re.compile(r"((?:那个|那個))\1+"), 0.9, "Adjacent repeated phrase."),
+    ("repetition", re.compile(r"(所以)\1+"), 0.88, "Adjacent repeated connector."),
+    ("repetition", re.compile(r"(但是)\1+"), 0.88, "Adjacent repeated connector."),
+]
 
 
 def read_json(path: str) -> dict[str, Any]:
@@ -314,7 +323,68 @@ def normalize_whisper_transcript(raw: dict[str, Any], source: Path, provider: di
     }
     if args.source_asset_id:
         result["source_asset_id"] = args.source_asset_id
+    add_filler_review(result)
     return result
+
+
+def add_filler_review(transcript: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for segment in transcript.get("segments") or []:
+        if not isinstance(segment, dict):
+            continue
+        text = str(segment.get("text") or "")
+        if not text:
+            continue
+        segment_start = float(segment.get("start") or 0)
+        segment_end = float(segment.get("end") or segment_start)
+        segment_duration = max(0.0, segment_end - segment_start)
+        for kind, pattern, confidence, reason in FILLER_REVIEW_PATTERNS:
+            for match in pattern.finditer(text):
+                estimated_start = segment_start + segment_duration * match.start() / len(text)
+                estimated_end = segment_start + segment_duration * match.end() / len(text)
+                candidates.append(
+                    {
+                        "candidate_id": f"candidate-{len(candidates) + 1:03d}",
+                        "segment_id": segment.get("id"),
+                        "kind": kind,
+                        "phrase": match.group(0),
+                        "confidence": confidence,
+                        "estimated_start": round(estimated_start, 3),
+                        "estimated_end": round(estimated_end, 3),
+                        "timestamp_precision": "estimated_from_segment",
+                        "reason": reason,
+                        "suggested_action": "human_review",
+                    }
+                )
+    transcript["filler_review"] = {
+        "candidates": candidates,
+        "candidate_count": len(candidates),
+        "automatic_deletion": False,
+        "gate": "human_decision_required",
+        "limitations": [
+            "A transcription model may omit spoken fillers.",
+            "Segment-level timestamps do not prove exact filler boundaries.",
+            "Discourse markers can carry meaning and must not be deleted blindly.",
+        ],
+    }
+    return candidates
+
+
+def analyze_transcript(args: argparse.Namespace) -> None:
+    transcript = read_json(args.input)
+    candidates = add_filler_review(transcript)
+    write_json(args.out, transcript)
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "candidate_count": len(candidates),
+                "automatic_deletion": False,
+                "gate": "human_decision_required",
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 def transcribe_local(args: argparse.Namespace) -> None:
@@ -360,6 +430,7 @@ def transcribe_local(args: argparse.Namespace) -> None:
                 "out": str(output),
                 "provider": provider["name"],
                 "segments": len(result["segments"]),
+                "filler_candidates": result["filler_review"]["candidate_count"],
                 "review_gate": result["review_gate"],
                 "source_upload": False,
             },
@@ -660,6 +731,15 @@ def escape_subtitles_path(path: Path) -> str:
     return value.replace(":", "\\:").replace("'", "\\'")
 
 
+def caption_force_style(render_config: dict[str, Any], profile_name: str) -> str:
+    profiles = render_config.get("caption_styles") or {}
+    profile = profiles.get(profile_name)
+    if not isinstance(profile, dict) or not profile:
+        raise SystemExit(f"caption style profile not found in protocol: {profile_name}")
+    allowed = {"FontName", "FontSize", "PrimaryColour", "OutlineColour", "BorderStyle", "Outline", "Shadow", "Alignment", "MarginV"}
+    return ",".join(f"{key}={value}" for key, value in profile.items() if key in allowed)
+
+
 def render_edl(args: argparse.Namespace) -> None:
     ffmpeg = runtime_path("ffmpeg")
     edl = read_json(args.edl)
@@ -681,6 +761,7 @@ def render_edl(args: argparse.Namespace) -> None:
     fps = int(render_config.get("fps", 30))
     video_codec = str(render_config.get("video_codec", "libx264"))
     audio_codec = str(render_config.get("audio_codec", "aac"))
+    caption_style = args.caption_style or str(render_config.get("default_caption_style") or "clean")
     captions_path = Path(args.captions_srt).expanduser().resolve() if args.captions_srt else None
     if captions_path and not captions_path.is_file():
         raise SystemExit(f"caption file does not exist: {captions_path}")
@@ -729,7 +810,7 @@ def render_edl(args: argparse.Namespace) -> None:
         current_video_label = "vfade"
     if burn_captions and captions_path:
         subtitle_path = escape_subtitles_path(captions_path)
-        style = "FontSize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=0,Alignment=2,MarginV=110"
+        style = caption_force_style(render_config, caption_style)
         filters.append(f"[{current_video_label}]subtitles=filename='{subtitle_path}':force_style='{style}'[vout]")
     else:
         filters.append(f"[{current_video_label}]null[vout]")
@@ -759,6 +840,8 @@ def render_edl(args: argparse.Namespace) -> None:
                 "edit_mode": edl.get("edit_mode"),
                 "caption_delivery": caption_delivery,
                 "captions": str(captions_path) if captions_path else None,
+                "caption_style": caption_style,
+                "caption_style_applied": burn_captions,
             },
             ensure_ascii=False,
         )
@@ -801,6 +884,11 @@ def build_parser() -> argparse.ArgumentParser:
     transcribe.add_argument("--source-asset-id")
     transcribe.set_defaults(func=transcribe_local)
 
+    review_transcript = subcommands.add_parser("analyze-transcript")
+    review_transcript.add_argument("--input", required=True)
+    review_transcript.add_argument("--out", required=True)
+    review_transcript.set_defaults(func=analyze_transcript)
+
     talking = subcommands.add_parser("make-talking-head-edl")
     talking.add_argument("--assets", required=True)
     talking.add_argument("--out", required=True)
@@ -837,6 +925,7 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--height", type=int)
     render.add_argument("--captions-srt")
     render.add_argument("--caption-mode", choices=("auto", "sidecar", "burn"), default="auto")
+    render.add_argument("--caption-style", choices=("clean", "bold_b2b"))
     render.add_argument("--protocol", default=str(DEFAULT_PROTOCOL))
     render.add_argument("--dry-run", action="store_true")
     render.set_defaults(func=render_edl)

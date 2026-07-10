@@ -29,7 +29,7 @@ The scanner writes `media_base` and relative asset paths. Agents may improve `ta
 
 The EDL is the review boundary between planning and rendering. Every clip keeps `segment_id`, `caption`, selected `asset_id`, duration, and match status. A `missing` status blocks rendering.
 
-The alpha renderer outputs 1080×1920, 30 fps, H.264/AAC MP4. It center-crops visual media to fill the canvas. `make-srt` maps EDL captions onto the rendered timeline. Caption burn-in is conditional on the local FFmpeg `subtitles/libass` filter; otherwise the SRT sidecar remains the delivery.
+The alpha renderer outputs 1080×1920, 30 fps, H.264/AAC MP4. It center-crops visual media to fill the canvas. `make-srt` maps EDL captions onto the rendered timeline. Caption burn-in is conditional on the local FFmpeg `subtitles/libass` filter; otherwise the SRT sidecar remains the delivery. Burned captions use a protocol-owned `bold_b2b` or `clean` style profile; SRT itself carries timing and text, not visual styling.
 
 ## Talking-head inputs
 
@@ -49,6 +49,8 @@ Preferred transcript file:
 If no transcript exists, `detect-silence` writes `silence-report.json`. The resulting EDL uses `source_start` and `source_end` but must retain `semantic_safety: silence_only_unverified` and `formal_gate: preview_only`.
 
 `transcribe-local` may create `transcript.auto.json` through an already-installed OpenAI Whisper CLI. Automatic transcript segments use `action: review`, `reviewed: false`, `review_gate: needs_human_review`, and `source_upload: false`. They can drive a preview and SRT generation, but cannot satisfy the sentence-safe acceptance gate until a person verifies text and timestamps.
+
+`analyze-transcript` adds `filler_review.candidates` for conservative hesitation and adjacent-repetition patterns. Every candidate keeps `suggested_action: human_review`, approximate timestamps, and the top-level gate `automatic_deletion: false`. Absence of a candidate does not prove the audio contains no filler.
 
 ## Mode gates
 

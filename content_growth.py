@@ -308,6 +308,8 @@ def run_video(script: Path, media: Path, output: Path, *, fast_preview: bool = F
         result["captions"] = str(captions) if caption_result.get("entries", 0) > 0 else None
         result["caption_entries"] = caption_result.get("entries", 0)
         result["caption_delivery"] = render_result.get("caption_delivery")
+        result["caption_style"] = render_result.get("caption_style")
+        result["caption_style_applied"] = render_result.get("caption_style_applied")
     return result
 
 
@@ -447,6 +449,8 @@ def run_talking_head(
         "captions": str(captions) if caption_result.get("entries", 0) > 0 else None,
         "caption_entries": caption_result.get("entries", 0),
         "caption_delivery": render_result.get("caption_delivery"),
+        "caption_style": render_result.get("caption_style"),
+        "caption_style_applied": render_result.get("caption_style_applied"),
         "joins_requiring_review": len(edl_data.get("join_review") or []),
         "human_review_required": True,
     }
@@ -561,6 +565,29 @@ def command_transcribe(args: argparse.Namespace) -> None:
         ]
     )
     result["next_step"] = f"Review {transcript}, set reviewed=true only after checking timestamps and text, then run talking-head mode."
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+def command_review_transcript(args: argparse.Namespace) -> None:
+    workspace = Path(args.workspace).expanduser().resolve()
+    if not workspace.is_dir():
+        raise SystemExit(f"workspace does not exist: {workspace}")
+    automatic = workspace / "output/video/transcript.auto.json"
+    manual = workspace / "transcript.json"
+    source = Path(args.input).expanduser().resolve() if args.input else (automatic if automatic.is_file() else manual)
+    if not source.is_file():
+        raise SystemExit("no transcript found; run `content_growth.py transcribe <workspace>` first or pass --input")
+    output = Path(args.out).expanduser().resolve() if args.out else workspace / "output/video/transcript.review-candidates.json"
+    result = execute_json(
+        [
+            sys.executable,
+            str(VIDEO_SCRIPT),
+            "analyze-transcript",
+            "--input", str(source),
+            "--out", str(output),
+        ]
+    )
+    result["next_step"] = "Listen to every candidate in context; update keep/delete manually. No candidate is deleted automatically."
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
@@ -793,6 +820,12 @@ def build_parser() -> argparse.ArgumentParser:
     transcribe.add_argument("--language", default="zh")
     transcribe.add_argument("--out")
     transcribe.set_defaults(func=command_transcribe)
+
+    review_transcript = subcommands.add_parser("review-transcript", help="Mark conservative filler/repetition candidates without deleting speech")
+    review_transcript.add_argument("workspace")
+    review_transcript.add_argument("--input")
+    review_transcript.add_argument("--out")
+    review_transcript.set_defaults(func=command_review_transcript)
     return parser
 
 

@@ -68,6 +68,9 @@ python3 content_growth.py video projects/my-project --mode talking-head --auto-t
 # 也可以先只生成待人工复核的本地转写
 python3 content_growth.py transcribe projects/my-project --model small --language zh
 
+# 标记疑似重复词和口头填充词；只生成候选，不自动删除
+python3 content_growth.py review-transcript projects/my-project
+
 # 素材拼接
 python3 content_growth.py video projects/my-project --mode material-assembly
 ```
@@ -79,7 +82,9 @@ python3 content_growth.py video projects/my-project --mode material-assembly
 
 口播项目可增加 `transcript.reviewed.json`。Agent 根据 `keep/delete` 和句子时间戳生成安全切点；只有 `reviewed: true` 才进入 `ready_for_human_review`。`--auto-transcribe` 调用的是用户本机的 OpenAI Whisper CLI，不上传视频；自动结果保持 `reviewed: false`，仍需人工核对。没有转写时不会假装理解废话或语义，只生成 FFmpeg 静音边界的保守预览。
 
-两个模式都会生成标准 `.srt` 字幕。若本机 FFmpeg 带有 `subtitles/libass` 滤镜，字幕会自动烧录；否则视频仍能完成，并保留 SRT 旁挂字幕。
+两个模式都会生成标准 `.srt` 字幕。若本机 FFmpeg 带有 `subtitles/libass` 滤镜，默认使用粗体黄色、黑色描边的 `bold_b2b` 样式烧录；否则视频仍能完成，并保留不携带视觉样式的 SRT 旁挂字幕。
+
+废话分析只标记 Whisper 实际识别到的“嗯 / 呃”和“然后然后 / 就是就是”等明显候选。模型可能漏掉真实口头词，时间范围也只是按句段估算，因此 `automatic_deletion` 永远是 `false`。
 
 命令退出码 0 和 `render_gate: ready` 只表示草稿成功渲染。两个模式都会保留 `publication_gate: blocked_pending_human_review`；人工审片、事实检查和权利确认完成前，不表示可以发布。
 
@@ -130,7 +135,7 @@ python3 skills/auto-edit-local-video/scripts/local_video.py check-runtime
 - `protocols/base-methodology.json`：开源基础 GEO、评分和视频协议。
 - `schemas/`：企业资料、评分、脚本、素材索引、GEO 任务和 EDL 数据契约。
 - `skills/`：Agent 工作流和底层执行脚本。
-- `content_growth.py`：用户入口，提供 `doctor/setup/demo/init/run/video/transcribe`。
+- `content_growth.py`：用户入口，提供 `doctor/setup/demo/init/run/video/transcribe/review-transcript`。
 - `AGENTS.md` / `CLAUDE.md`：Codex 和 Claude Code 的入口说明。
 
 ## Agent 最小提示词
@@ -147,7 +152,9 @@ python3 skills/auto-edit-local-video/scripts/local_video.py check-runtime
 
 ## 项目状态
 
-当前开发目标为 `0.4.0-alpha`。GEO 与评分只依赖 Python 标准库；视频基础层依赖用户本机的 `ffmpeg` 与 `ffprobe`。本地 Whisper 转写和字幕烧录是按运行环境启用的可选能力；自动识别废话、剪映草稿和高级动效仍未纳入基础层。
+当前开发目标为 `0.4.1-alpha`。GEO 与评分只依赖 Python 标准库；视频基础层依赖用户本机的 `ffmpeg` 与 `ffprobe`。本地 Whisper 转写、人工复核型废话候选和字幕样式已接入；自动删除废话、剪映草稿和高级动效仍未纳入基础层。CI 在 Linux、macOS 和 Windows 上分别验证 Python 3.9 基础流程。
+
+真实本地 Whisper 联调过程与已知误差见 [`docs/REAL_TRANSCRIPTION_VALIDATION.md`](docs/REAL_TRANSCRIPTION_VALIDATION.md)。
 
 ## 开源与商业边界
 

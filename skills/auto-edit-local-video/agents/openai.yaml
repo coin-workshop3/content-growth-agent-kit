@@ -1,4 +1,4 @@
 interface:
   display_name: "本地自动剪辑"
-  short_description: "本地转写、字幕、口播精剪与素材拼接"
-  default_prompt: "Use $auto-edit-local-video to recommend a mode, optionally transcribe locally, create SRT captions, and render a reviewable local draft."
+  short_description: "本地转写、废话候选、字幕与两种剪辑"
+  default_prompt: "Use $auto-edit-local-video to recommend a mode, optionally transcribe locally, mark review-only filler candidates, create SRT captions, and render a reviewable local draft."

@@ -36,6 +36,14 @@ def main() -> None:
         raise SystemExit(f"unexpected score dimension order: {score_keys}")
     if float(protocol["score"].get("pass_threshold", -1)) != 6.0:
         raise SystemExit("base score threshold must be 6.0")
+    video = protocol["video"]
+    if set((video.get("modes") or {}).keys()) != {"talking_head_cleanup", "scripted_asset_assembly"}:
+        raise SystemExit("video protocol must expose exactly the two supported editing modes")
+    if (video.get("render") or {}).get("caption_fallback") != "sidecar_srt":
+        raise SystemExit("video protocol must preserve portable SRT captions when burn-in is unavailable")
+    local_transcription = (video.get("capability_levels") or {}).get("local_transcription_optional") or {}
+    if local_transcription.get("source_upload") is not False or local_transcription.get("human_transcript_review_required") is not True:
+        raise SystemExit("local transcription must prohibit source upload and require human transcript review")
 
     for path in sorted((ROOT / "examples").rglob("*.json")):
         read(path)

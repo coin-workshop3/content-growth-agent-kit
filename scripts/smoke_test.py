@@ -4,18 +4,20 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def run(command: list[str]) -> subprocess.CompletedProcess[str]:
-    process = subprocess.run(command, cwd=ROOT, text=True, capture_output=True)
+def run(command: list[str], *, env: Optional[dict[str, str]] = None) -> subprocess.CompletedProcess[str]:
+    process = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, env=env)
     if process.returncode != 0:
         print(process.stdout)
         print(process.stderr, file=sys.stderr)
@@ -51,6 +53,30 @@ def create_silent_video(ffmpeg: str, path: Path) -> None:
     ])
 
 
+def create_mock_whisper(path: Path) -> None:
+    path.write_text(
+        """#!/usr/bin/env python3
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+output_dir = Path(sys.argv[sys.argv.index("--output_dir") + 1])
+output_dir.mkdir(parents=True, exist_ok=True)
+(output_dir / f"{source.stem}.json").write_text(json.dumps({
+    "language": "zh",
+    "text": "自动转写测试。第二句话。",
+    "segments": [
+        {"start": 0.2, "end": 2.0, "text": "自动转写测试。"},
+        {"start": 3.1, "end": 5.0, "text": "第二句话。"}
+    ]
+}, ensure_ascii=False), encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="content-growth-smoke-") as temp_raw:
         temp = Path(temp_raw)
@@ -58,6 +84,10 @@ def main() -> None:
         doctor = json.loads(doctor_process.stdout)
         assert doctor["core"]["ready"] is True
         assert doctor["methodology"]["ready"] is True
+        assert doctor["captions"]["sidecar_srt"] is True
+        setup = json.loads(run([sys.executable, "content_growth.py", "setup", "--json"]).stdout)
+        assert setup["automatic_install"] is False
+        assert setup["official_guides"]["whisper"].startswith("https://")
 
         demo = temp / "demo"
         run([sys.executable, "content_growth.py", "demo", "--out", str(demo)])
@@ -124,12 +154,54 @@ def main() -> None:
             assert len(silence_report["silences"]) >= 2
             assert Path(talking_result["draft"]).stat().st_size > 0
 
+            if os.name != "nt":
+                mock_bin = temp / "mock-bin"
+                mock_bin.mkdir()
+                create_mock_whisper(mock_bin / "whisper")
+                whisper_env = dict(os.environ)
+                whisper_env["PATH"] = str(mock_bin) + os.pathsep + whisper_env.get("PATH", "")
+                auto_result = json.loads(
+                    run(
+                        [
+                            sys.executable,
+                            "content_growth.py",
+                            "video",
+                            str(talking_workspace),
+                            "--mode", "talking-head",
+                            "--auto-transcribe",
+                            "--fast-preview",
+                        ],
+                        env=whisper_env,
+                    ).stdout
+                )
+                assert auto_result["source_strategy"] == "local_whisper_unreviewed"
+                assert auto_result["transcription"]["status"] == "complete_needs_human_review"
+                assert auto_result["formal_gate"] == "preview_only"
+                assert auto_result["caption_entries"] == 2
+                assert Path(auto_result["captions"]).stat().st_size > 0
+                transcribe_result = json.loads(
+                    run(
+                        [sys.executable, "content_growth.py", "transcribe", str(talking_workspace)],
+                        env=whisper_env,
+                    ).stdout
+                )
+                assert transcribe_result["review_gate"] == "needs_human_review"
+                reused_result = json.loads(
+                    run(
+                        [sys.executable, "content_growth.py", "video", str(talking_workspace), "--mode", "talking-head", "--fast-preview"]
+                    ).stdout
+                )
+                assert reused_result["source_strategy"] == "local_whisper_unreviewed"
+                assert reused_result["transcription"]["status"] == "existing_auto_transcript"
+
             shutil.copyfile(ROOT / "examples/demo-enterprise/transcript.reviewed.json", talking_workspace / "transcript.reviewed.json")
             reviewed_result = json.loads(
                 run([sys.executable, "content_growth.py", "video", str(talking_workspace), "--mode", "talking-head", "--fast-preview"]).stdout
             )
             assert reviewed_result["source_strategy"] == "transcript"
             assert reviewed_result["formal_gate"] == "ready_for_human_review"
+            assert reviewed_result["caption_entries"] > 0
+            assert Path(reviewed_result["captions"]).stat().st_size > 0
 
             material_workspace = temp / "material-workspace"
             material_media = material_workspace / "media"
@@ -144,6 +216,9 @@ def main() -> None:
             assert material_result["recommendation"]["recommended_mode"] == "scripted_asset_assembly"
             assert material_result["publication_gate"] == "blocked_pending_human_review"
             assert Path(material_result["draft"]).stat().st_size > 0
+            assert material_result["caption_entries"] > 0
+            assert Path(material_result["captions"]).stat().st_size > 0
+            assert material_result["caption_delivery"] in {"sidecar_srt", "burned_in"}
 
             ambiguous_workspace = temp / "ambiguous-workspace"
             ambiguous_media = ambiguous_workspace / "media"

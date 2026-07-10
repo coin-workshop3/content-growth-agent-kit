@@ -1,13 +1,19 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/coin-workshop3/content-growth-agent-kit/schemas/transcript.schema.json",
-  "title": "Reviewed talking-head transcript",
+  "title": "Local talking-head transcript and review state",
   "type": "object",
   "required": ["reviewed", "segments"],
   "properties": {
+    "schema_version": {"type": "string"},
     "reviewed": {"type": "boolean"},
     "source_asset_id": {"type": "string"},
+    "source": {"type": "string"},
     "language": {"type": "string"},
+    "provider": {"type": "string"},
+    "model": {"type": "string"},
+    "source_upload": {"const": false},
+    "review_gate": {"enum": ["needs_human_review", "reviewed"]},
     "segments": {
       "type": "array",
       "minItems": 1,

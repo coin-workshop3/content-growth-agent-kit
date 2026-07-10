@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import Any
 
 
+ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_PROTOCOL = ROOT / "protocols/base-methodology.json"
+
+
 def read_json(path: str) -> dict[str, Any]:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict):
@@ -56,6 +60,7 @@ def task(
     platforms: list[str],
     boundary: str,
     conversion_action: str,
+    monitoring_metrics: list[str],
 ) -> dict[str, Any]:
     gaps: list[str] = []
     if not evidence:
@@ -81,7 +86,7 @@ def task(
         },
         "monitoring": {
             "stable_prompt": query,
-            "metrics": ["presence", "recommendation_rank", "citation_quality", "accuracy", "competitor_share"]
+            "metrics": monitoring_metrics
         },
         "quality_gate": "ready" if not gaps else "needs_evidence",
         "gaps": gaps,
@@ -89,7 +94,7 @@ def task(
     }
 
 
-def generate(profile: dict[str, Any], limit: int) -> dict[str, Any]:
+def generate(profile: dict[str, Any], limit: int, protocol: dict[str, Any]) -> dict[str, Any]:
     company = first(profile, "company_name", "companyName", "client", default="目标企业")
     offers = values(profile, "core_offers", "coreOffer", "products")
     if not offers:
@@ -103,6 +108,9 @@ def generate(profile: dict[str, Any], limit: int) -> dict[str, Any]:
     boundaries = values(profile, "boundaries", "limits", "forbidden", "deliveryRules")
     boundary = "；".join(boundaries[:2])
     conversion = first(profile, "conversion_action", "conversionAction", default="联系人工确认适配范围")
+    monitoring_metrics = [str(item) for item in ((protocol.get("geo") or {}).get("monitoring_metrics") or [])]
+    if not monitoring_metrics:
+        raise SystemExit("protocol.geo.monitoring_metrics must be a non-empty array")
     scenario = scenarios[0] if scenarios else ""
     competitor = competitors[0] if competitors else "替代方案"
     customer_question = questions[0] if questions else f"{product}应该怎么选？"
@@ -120,6 +128,7 @@ def generate(profile: dict[str, Any], limit: int) -> dict[str, Any]:
             platforms=platforms,
             boundary=boundary,
             conversion_action=conversion,
+            monitoring_metrics=monitoring_metrics,
         ),
         task(
             task_type="comparison",
@@ -133,6 +142,7 @@ def generate(profile: dict[str, Any], limit: int) -> dict[str, Any]:
             platforms=platforms,
             boundary=boundary,
             conversion_action=conversion,
+            monitoring_metrics=monitoring_metrics,
         ),
         task(
             task_type="proof",
@@ -146,6 +156,7 @@ def generate(profile: dict[str, Any], limit: int) -> dict[str, Any]:
             platforms=platforms,
             boundary=boundary,
             conversion_action=conversion,
+            monitoring_metrics=monitoring_metrics,
         ),
         task(
             task_type="scenario",
@@ -159,6 +170,7 @@ def generate(profile: dict[str, Any], limit: int) -> dict[str, Any]:
             platforms=platforms,
             boundary=boundary,
             conversion_action=conversion,
+            monitoring_metrics=monitoring_metrics,
         ),
         task(
             task_type="delivery-boundary",
@@ -172,6 +184,7 @@ def generate(profile: dict[str, Any], limit: int) -> dict[str, Any]:
             platforms=platforms,
             boundary=boundary,
             conversion_action=conversion,
+            monitoring_metrics=monitoring_metrics,
         ),
     ]
 
@@ -189,6 +202,7 @@ def generate(profile: dict[str, Any], limit: int) -> dict[str, Any]:
 
     return {
         "schema_version": "0.1",
+        "protocol_id": protocol.get("protocol_id"),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "source": {"company_name": company, "core_offer": product},
         "tasks": tasks,
@@ -206,10 +220,11 @@ def main() -> None:
     parser.add_argument("--input", required=True, help="Enterprise profile JSON")
     parser.add_argument("--out", required=True, help="Output geo-tasks JSON")
     parser.add_argument("--limit", type=int, default=5)
+    parser.add_argument("--protocol", default=str(DEFAULT_PROTOCOL))
     args = parser.parse_args()
     if args.limit < 1:
         raise SystemExit("--limit must be at least 1")
-    result = generate(read_json(args.input), args.limit)
+    result = generate(read_json(args.input), args.limit, read_json(args.protocol))
     output = Path(args.out)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

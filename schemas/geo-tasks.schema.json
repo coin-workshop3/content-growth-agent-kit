@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/coin-workshop3/content-growth-agent-kit/schemas/geo-tasks.schema.json",
+  "title": "Generated GEO tasks",
+  "type": "object",
+  "required": ["schema_version", "protocol_id", "source", "tasks", "summary"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "protocol_id": {"type": "string"},
+    "source": {"type": "object"},
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["task_id", "type", "priority", "query", "intent", "quality_gate"],
+        "properties": {
+          "task_id": {"type": "string"},
+          "type": {"type": "string"},
+          "priority": {"enum": ["P0", "P1", "P2"]},
+          "query": {"type": "string"},
+          "intent": {"type": "string"},
+          "quality_gate": {"enum": ["ready", "needs_evidence"]}
+        },
+        "additionalProperties": true
+      }
+    },
+    "summary": {"type": "object"}
+  },
+  "additionalProperties": true
+}

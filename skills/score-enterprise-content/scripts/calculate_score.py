@@ -9,16 +9,8 @@ from pathlib import Path
 from typing import Any
 
 
-WEIGHTS = {"ER": 1.5, "SR": 1.5, "HP": 1.5, "QL": 1.0, "NA": 1.0, "AB": 1.0, "SAT": 1.0}
-ACTIONS = {
-    "ER": "加入一条具体客户原话、触发场景或可感知成本。",
-    "SR": "明确一个真实搜索问题、意图和核心实体。",
-    "HP": "把开头改为具体风险、反差、判断或即时收益。",
-    "QL": "增加一句有边界且有证据支撑的判断句。",
-    "NA": "补齐问题、标准、证据、边界和下一步的决策链。",
-    "AB": "缩小到明确的买方、决策人或高价值使用者。",
-    "SAT": "加入可验证的对比、避坑标准或取舍。",
-}
+ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_PROTOCOL = ROOT / "protocols/base-methodology.json"
 
 
 def load(path: str) -> dict[str, Any]:
@@ -28,15 +20,29 @@ def load(path: str) -> dict[str, Any]:
     return value
 
 
-def calculate(evaluation: dict[str, Any], threshold: float) -> dict[str, Any]:
+def load_score_protocol(path: str) -> dict[str, Any]:
+    protocol = load(path)
+    score = protocol.get("score")
+    if not isinstance(score, dict) or not isinstance(score.get("dimensions"), list):
+        raise SystemExit("protocol.score.dimensions must be an array")
+    result = dict(score)
+    result["protocol_id"] = protocol.get("protocol_id")
+    return result
+
+
+def calculate(evaluation: dict[str, Any], threshold: float, protocol: dict[str, Any]) -> dict[str, Any]:
     dimensions = evaluation.get("dimensions")
     if not isinstance(dimensions, dict):
         raise SystemExit("dimensions must be an object keyed by ER/SR/HP/QL/NA/AB/SAT")
 
+    protocol_dimensions = protocol["dimensions"]
+    weights = {str(item["key"]): float(item["weight"]) for item in protocol_dimensions}
+    actions = {str(item["key"]): str(item["low_score_action"]) for item in protocol_dimensions}
+
     normalized: dict[str, dict[str, Any]] = {}
     errors: list[str] = []
     weighted = 0.0
-    for key, weight in WEIGHTS.items():
+    for key, weight in weights.items():
         item = dimensions.get(key)
         if not isinstance(item, dict):
             errors.append(f"missing dimension {key}")
@@ -57,16 +63,17 @@ def calculate(evaluation: dict[str, Any], threshold: float) -> dict[str, Any]:
     if errors:
         raise SystemExit("invalid evaluation:\n- " + "\n- ".join(errors))
 
-    maximum = sum(weight * 5 for weight in WEIGHTS.values())
+    maximum = sum(weight * 5 for weight in weights.values())
     composite = round(weighted / maximum * 10, 2)
     blocked = evaluation.get("blocked_reasons") or []
     if not isinstance(blocked, list):
         raise SystemExit("blocked_reasons must be an array")
     blocked = [str(item).strip() for item in blocked if str(item).strip()]
-    low = sorted((key for key in WEIGHTS if normalized[key]["score"] < 3), key=lambda key: normalized[key]["score"])
+    low = sorted((key for key in weights if normalized[key]["score"] < 3), key=lambda key: normalized[key]["score"])
 
     return {
         "schema_version": "0.1",
+        "protocol_id": protocol.get("protocol_id"),
         "content_id": evaluation.get("content_id", "unknown"),
         "track": evaluation.get("track", "unspecified"),
         "blind_score": True,
@@ -76,7 +83,7 @@ def calculate(evaluation: dict[str, Any], threshold: float) -> dict[str, Any]:
         "pass": composite >= threshold and not blocked,
         "dimensions": normalized,
         "blocked_reasons": blocked,
-        "next_actions": [ACTIONS[key] for key in low[:3]],
+        "next_actions": [actions[key] for key in low[:3]],
     }
 
 
@@ -84,11 +91,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Calculate a gated enterprise content score")
     parser.add_argument("--input", required=True, help="Agent-authored dimension evaluation JSON")
     parser.add_argument("--out", help="Output JSON; omit to print only")
-    parser.add_argument("--threshold", type=float, default=6.0)
+    parser.add_argument("--threshold", type=float)
+    parser.add_argument("--protocol", default=str(DEFAULT_PROTOCOL))
     args = parser.parse_args()
-    if not 0 <= args.threshold <= 10:
+    protocol = load_score_protocol(args.protocol)
+    threshold = args.threshold if args.threshold is not None else float(protocol.get("pass_threshold", 6.0))
+    if not 0 <= threshold <= 10:
         raise SystemExit("--threshold must be between 0 and 10")
-    result = calculate(load(args.input), args.threshold)
+    result = calculate(load(args.input), threshold, protocol)
     rendered = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     if args.out:
         output = Path(args.out)

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/coin-workshop3/content-growth-agent-kit/schemas/edl.schema.json",
+  "title": "Reviewable edit decision list",
+  "type": "object",
+  "required": ["protocol_id", "edl_id", "clips", "missing", "render_gate", "human_review_required"],
+  "properties": {
+    "protocol_id": {"type": "string"},
+    "edl_id": {"type": "string"},
+    "clips": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["clip_id", "segment_id", "caption", "duration", "status"],
+        "properties": {
+          "clip_id": {"type": "string"},
+          "segment_id": {"type": "string"},
+          "caption": {"type": "string"},
+          "duration": {"type": "number", "exclusiveMinimum": 0},
+          "status": {"enum": ["matched", "missing"]},
+          "asset_id": {"type": ["string", "null"]}
+        },
+        "additionalProperties": true
+      }
+    },
+    "missing": {"type": "array"},
+    "render_gate": {"enum": ["ready", "blocked"]},
+    "human_review_required": {"const": true}
+  },
+  "additionalProperties": true
+}

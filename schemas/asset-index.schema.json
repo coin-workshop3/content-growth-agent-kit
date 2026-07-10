@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/coin-workshop3/content-growth-agent-kit/schemas/asset-index.schema.json",
+  "title": "Local media asset index",
+  "type": "object",
+  "required": ["schema_version", "media_base", "assets"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "media_base": {"type": "string"},
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["asset_id", "path", "kind", "tags"],
+        "properties": {
+          "asset_id": {"type": "string"},
+          "path": {"type": "string"},
+          "kind": {"enum": ["video", "image"]},
+          "duration": {"type": "number", "minimum": 0},
+          "has_audio": {"type": "boolean"},
+          "tags": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

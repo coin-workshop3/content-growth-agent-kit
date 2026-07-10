@@ -6,7 +6,7 @@
 
 - `generate-geo-tasks`：从可验证的企业事实生成 AI 答案、搜索、对比、风险和证据型内容任务。
 - `score-enterprise-content`：按 7 维 rubric 盲评分，执行 6 分准入和事实阻断。
-- `auto-edit-local-video`：扫描本机素材、生成 EDL，并用用户自己的 FFmpeg 渲染审片草稿。
+- `auto-edit-local-video`：自动推荐或明确选择“口播精剪 / 素材拼接”，生成 EDL，并用用户自己的 FFmpeg 渲染审片草稿。
 
 这个仓库不会自动上传素材、登录平台、发布内容、私信客户或替企业做商业承诺。
 
@@ -23,7 +23,7 @@ python3 content_growth.py demo
 
 也可以在 GitHub 选择 **Download ZIP**，解压后进入目录运行相同的两条 Python 命令，不要求安装 Git。
 
-`doctor` 会说明当前机器能运行哪些能力；`demo` 会生成 GEO、评分结果，并在本机有 FFmpeg 时生成一条合成视频草稿。输出默认位于 `demo-output/`。
+`doctor` 会说明当前机器能运行哪些能力；`demo` 会生成 GEO、评分结果，并在本机有 FFmpeg 时分别生成“口播精剪”和“素材拼接”两条合成视频草稿。输出默认位于 `demo-output/`。
 
 ## 创建自己的项目
 
@@ -46,6 +46,35 @@ python3 content_growth.py run projects/my-project
 ```
 
 默认 `run` 允许部分完成，并在 `run-summary.json` 标记等待 Agent 或素材的阶段。自动化流程可使用 `--strict`：任何请求阶段未完成时返回退出码 2。
+
+## 两个剪辑标准
+
+把授权使用的素材放进项目的 `media/` 后，可以让 Agent 推荐：
+
+```bash
+python3 content_growth.py video projects/my-project --mode auto
+```
+
+也可以明确选择原有两个标准：
+
+```bash
+# 口播精剪
+python3 content_growth.py video projects/my-project --mode talking-head
+
+# 素材拼接
+python3 content_growth.py video projects/my-project --mode material-assembly
+```
+
+| 模式 | 基础输入 | FFmpeg-only 能力 | 正式边界 |
+|---|---|---|---|
+| 口播精剪 | 至少一条有声口播视频 | 检测长停顿、保留呼吸缓冲、生成接缝报告和预览 | 没有人工复核的时间戳转写时只能是 `preview_only` |
+| 素材拼接 | `video-script.json` 和多段本地素材 | 按 Hook / Problem / SceneEmotion / Product / Proof / CTA 标签匹配并渲染 | 正式字幕和连续口播仍需要确认文案或真实转写 |
+
+口播项目可增加 `transcript.reviewed.json`。Agent 根据 `keep/delete` 和句子时间戳生成安全切点；只有 `reviewed: true` 才进入 `ready_for_human_review`。没有转写时不会假装理解废话或语义，只生成 FFmpeg 静音边界的保守预览。
+
+命令退出码 0 和 `render_gate: ready` 只表示草稿成功渲染。两个模式都会保留 `publication_gate: blocked_pending_human_review`；人工审片、事实检查和权利确认完成前，不表示可以发布。
+
+如果目录里有多条有声口播，先查看 `mode-recommendation.json` 中的候选 `asset_id`，再用 `--asset-id <id>` 指定主口播，避免转写和视频错配。
 
 已有经验的 Agent 仍可直接调用底层脚本：
 
@@ -90,7 +119,7 @@ python3 skills/auto-edit-local-video/scripts/local_video.py check-runtime
 - `protocols/base-methodology.json`：开源基础 GEO、评分和视频协议。
 - `schemas/`：企业资料、评分、脚本、素材索引、GEO 任务和 EDL 数据契约。
 - `skills/`：Agent 工作流和底层执行脚本。
-- `content_growth.py`：用户入口，提供 `doctor/demo/init/run`。
+- `content_growth.py`：用户入口，提供 `doctor/demo/init/run/video`。
 - `AGENTS.md` / `CLAUDE.md`：Codex 和 Claude Code 的入口说明。
 
 ## Agent 最小提示词
@@ -107,7 +136,7 @@ python3 skills/auto-edit-local-video/scripts/local_video.py check-runtime
 
 ## 项目状态
 
-当前为 `0.2.0-alpha`。GEO 与评分只依赖 Python 标准库；视频基础层依赖用户本机的 `ffmpeg` 与 `ffprobe`。自动转写、复杂字幕、智能删停顿、剪映草稿和高级动效仍属于可选高级能力。
+当前开发目标为 `0.3.0-alpha`。GEO 与评分只依赖 Python 标准库；视频基础层依赖用户本机的 `ffmpeg` 与 `ffprobe`。两个剪辑标准已有独立模式，但自动语义转写、烧录字幕、剪映草稿和高级动效仍属于可选高级能力。
 
 ## 开源与商业边界
 

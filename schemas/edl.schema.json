@@ -3,9 +3,14 @@
   "$id": "https://github.com/coin-workshop3/content-growth-agent-kit/schemas/edl.schema.json",
   "title": "Reviewable edit decision list",
   "type": "object",
-  "required": ["protocol_id", "edl_id", "clips", "missing", "render_gate", "human_review_required"],
+  "required": ["protocol_id", "edl_id", "edit_mode", "clips", "missing", "render_gate", "publication_gate", "human_review_required"],
   "properties": {
     "protocol_id": {"type": "string"},
+    "edit_mode": {"enum": ["talking_head_cleanup", "scripted_asset_assembly"]},
+    "mode_variant": {"type": "string"},
+    "semantic_safety": {"type": "string"},
+    "formal_gate": {"type": "string"},
+    "publication_gate": {"const": "blocked_pending_human_review"},
     "edl_id": {"type": "string"},
     "clips": {
       "type": "array",
@@ -18,6 +23,8 @@
           "segment_id": {"type": "string"},
           "caption": {"type": "string"},
           "duration": {"type": "number", "exclusiveMinimum": 0},
+          "source_start": {"type": "number", "minimum": 0},
+          "source_end": {"type": "number", "exclusiveMinimum": 0},
           "status": {"enum": ["matched", "missing"]},
           "asset_id": {"type": ["string", "null"]}
         },

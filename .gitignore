@@ -9,3 +9,5 @@ local-media/
 *.mkv
 *.wav
 *.mp3
+/demo-output/
+/projects/

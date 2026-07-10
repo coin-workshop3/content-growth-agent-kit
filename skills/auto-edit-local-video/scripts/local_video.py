@@ -17,6 +17,8 @@ from typing import Any
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".mkv", ".webm"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_PROTOCOL = ROOT / "protocols/base-methodology.json"
 
 
 def read_json(path: str) -> dict[str, Any]:
@@ -30,6 +32,14 @@ def write_json(path: str, value: dict[str, Any]) -> None:
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def video_protocol(path: str) -> dict[str, Any]:
+    protocol = read_json(path)
+    video = protocol.get("video")
+    if not isinstance(video, dict) or not isinstance(video.get("render"), dict):
+        raise SystemExit("protocol.video.render must be an object")
+    return video
 
 
 def runtime_path(name: str) -> str:
@@ -53,6 +63,7 @@ def check_runtime(args: argparse.Namespace) -> None:
         "ffmpeg": {"path": ffmpeg, "version": version_line(ffmpeg) if ffmpeg else None},
         "ffprobe": {"path": ffprobe, "version": version_line(ffprobe) if ffprobe else None},
         "distribution": "user-provided runtime; this repository ships no FFmpeg binary",
+        "capability_levels": video_protocol(args.protocol).get("capability_levels"),
     }
     if args.out:
         write_json(args.out, result)
@@ -158,6 +169,7 @@ def asset_score(asset: dict[str, Any], requested: set[str], use_count: Counter[s
 def make_edl(args: argparse.Namespace) -> None:
     script = read_json(args.script)
     index = read_json(args.assets)
+    protocol = read_json(args.protocol)
     segments = validate_script(script)
     assets = index.get("assets")
     if not isinstance(assets, list) or not assets:
@@ -195,6 +207,7 @@ def make_edl(args: argparse.Namespace) -> None:
 
     result = {
         "schema_version": "0.1",
+        "protocol_id": protocol.get("protocol_id"),
         "edl_id": f"edl-{script.get('script_id') or 'draft'}",
         "script_id": script.get("script_id"),
         "aspect_ratio": script.get("aspect_ratio", "9:16"),
@@ -234,6 +247,12 @@ def render_edl(args: argparse.Namespace) -> None:
     if not media_base_raw:
         raise SystemExit("media base is required")
     media_base = Path(media_base_raw).expanduser().resolve()
+    render_config = video_protocol(args.protocol)["render"]
+    width = args.width or int(render_config.get("width", 1080))
+    height = args.height or int(render_config.get("height", 1920))
+    fps = int(render_config.get("fps", 30))
+    video_codec = str(render_config.get("video_codec", "libx264"))
+    audio_codec = str(render_config.get("audio_codec", "aac"))
 
     command = [ffmpeg, "-y"]
     filters: list[str] = []
@@ -246,12 +265,12 @@ def render_edl(args: argparse.Namespace) -> None:
             raise SystemExit(f"invalid clip duration: {clip.get('clip_id')}")
         path = safe_media_path(media_base, str(asset["path"]))
         if asset.get("kind") == "image":
-            command.extend(["-loop", "1", "-framerate", "30", "-t", str(duration), "-i", str(path)])
+            command.extend(["-loop", "1", "-framerate", str(fps), "-t", str(duration), "-i", str(path)])
         else:
             command.extend(["-ss", "0", "-t", str(duration), "-i", str(path)])
         filters.append(
-            f"[{position}:v]scale={args.width}:{args.height}:force_original_aspect_ratio=increase,"
-            f"crop={args.width}:{args.height},setsar=1,fps=30,trim=duration={duration},setpts=PTS-STARTPTS[v{position}]"
+            f"[{position}:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},setsar=1,fps={fps},trim=duration={duration},setpts=PTS-STARTPTS[v{position}]"
         )
         if asset.get("kind") == "video" and asset.get("has_audio"):
             filters.append(
@@ -269,8 +288,8 @@ def render_edl(args: argparse.Namespace) -> None:
         [
             "-filter_complex", ";".join(filters),
             "-map", "[vout]", "-map", "[aout]",
-            "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
+            "-c:v", video_codec, "-preset", "veryfast", "-pix_fmt", "yuv420p",
+            "-c:a", audio_codec, "-b:a", "128k", "-movflags", "+faststart",
             str(output),
         ]
     )
@@ -289,6 +308,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     runtime = subcommands.add_parser("check-runtime")
     runtime.add_argument("--out")
+    runtime.add_argument("--protocol", default=str(DEFAULT_PROTOCOL))
     runtime.set_defaults(func=check_runtime)
 
     scan = subcommands.add_parser("scan-assets")
@@ -301,6 +321,7 @@ def build_parser() -> argparse.ArgumentParser:
     edl.add_argument("--assets", required=True)
     edl.add_argument("--out", required=True)
     edl.add_argument("--allow-fallback", action="store_true")
+    edl.add_argument("--protocol", default=str(DEFAULT_PROTOCOL))
     edl.set_defaults(func=make_edl)
 
     render = subcommands.add_parser("render-edl")
@@ -308,8 +329,9 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--assets", required=True)
     render.add_argument("--out", required=True)
     render.add_argument("--media-base")
-    render.add_argument("--width", type=int, default=1080)
-    render.add_argument("--height", type=int, default=1920)
+    render.add_argument("--width", type=int)
+    render.add_argument("--height", type=int)
+    render.add_argument("--protocol", default=str(DEFAULT_PROTOCOL))
     render.add_argument("--dry-run", action="store_true")
     render.set_defaults(func=render_edl)
     return parser

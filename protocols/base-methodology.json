@@ -1,0 +1,125 @@
+{
+  "schema_version": "0.2",
+  "protocol_id": "content-growth-base-v0.2",
+  "license_scope": "Apache-2.0 open base methodology",
+  "geo": {
+    "positioning": "AI answer discovery + platform search + AI parsing + monitoring",
+    "layers": [
+      "ai-answer-discovery",
+      "platform-search",
+      "ai-parsing",
+      "monitoring-and-retro"
+    ],
+    "task_types": [
+      "customer-language",
+      "comparison",
+      "proof",
+      "scenario",
+      "delivery-boundary"
+    ],
+    "monitoring_metrics": [
+      "presence",
+      "recommendation_rank",
+      "citation_quality",
+      "accuracy",
+      "competitor_share"
+    ],
+    "gate": {
+      "requires_core_offer": true,
+      "missing_evidence_status": "needs_evidence",
+      "observed_answers_must_not_be_invented": true
+    }
+  },
+  "score": {
+    "pass_threshold": 6.0,
+    "blocked_reasons_override_score": true,
+    "dimensions": [
+      {
+        "key": "ER",
+        "label": "Pain resonance",
+        "weight": 1.5,
+        "low_score_action": "加入一条具体客户原话、触发场景或可感知成本。"
+      },
+      {
+        "key": "SR",
+        "label": "Search resonance",
+        "weight": 1.5,
+        "low_score_action": "明确一个真实搜索问题、意图和核心实体。"
+      },
+      {
+        "key": "HP",
+        "label": "Hook strength",
+        "weight": 1.5,
+        "low_score_action": "把开头改为具体风险、反差、判断或即时收益。"
+      },
+      {
+        "key": "QL",
+        "label": "Quotable judgment",
+        "weight": 1.0,
+        "low_score_action": "增加一句有边界且有证据支撑的判断句。"
+      },
+      {
+        "key": "NA",
+        "label": "Decision path",
+        "weight": 1.0,
+        "low_score_action": "补齐问题、标准、证据、边界和下一步的决策链。"
+      },
+      {
+        "key": "AB",
+        "label": "Valuable audience",
+        "weight": 1.0,
+        "low_score_action": "缩小到明确的买方、决策人或高价值使用者。"
+      },
+      {
+        "key": "SAT",
+        "label": "Differentiation sharpness",
+        "weight": 1.0,
+        "low_score_action": "加入可验证的对比、避坑标准或取舍。"
+      }
+    ]
+  },
+  "video": {
+    "capability_levels": {
+      "basic": {
+        "dependencies": [
+          "ffmpeg",
+          "ffprobe"
+        ],
+        "outputs": [
+          "asset index",
+          "tag-matched EDL",
+          "basic 9:16 MP4 draft"
+        ]
+      },
+      "advanced_optional": {
+        "dependencies": [
+          "WhisperX",
+          "auto-editor",
+          "pysubs2",
+          "Remotion or HyperFrames",
+          "pyJianYingDraft"
+        ],
+        "outputs": [
+          "word timestamps",
+          "sentence-safe silence cuts",
+          "styled captions",
+          "motion packaging",
+          "Jianying draft export"
+        ]
+      }
+    },
+    "render": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "video_codec": "libx264",
+      "audio_codec": "aac"
+    },
+    "gates": {
+      "missing_asset_blocks_render": true,
+      "human_review_required": true,
+      "never_upload_or_publish_automatically": true,
+      "never_modify_source_media": true
+    }
+  }
+}

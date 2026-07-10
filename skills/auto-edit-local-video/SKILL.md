@@ -9,7 +9,7 @@ Create a conservative first cut on the user's machine. Produce an explicit EDL a
 
 ## Workflow
 
-1. Read `references/video-contract.md` before changing script, asset-index, or EDL structures.
+1. Read `references/video-contract.md` before changing script, asset-index, or EDL structures. Read `references/dependency-levels.md` when deciding whether FFmpeg is enough or an advanced tool is justified.
 2. Check the runtime:
 
 ```bash
@@ -47,4 +47,5 @@ python3 skills/auto-edit-local-video/scripts/local_video.py render-edl \
 - Use only media paths the user placed in scope. Reject paths escaping the declared media directory.
 - This alpha renderer makes a simple 9:16 cut and preserves source audio when present. It does not transcribe speech, burn captions, normalize loudness, or promise final-edit quality.
 - The repository does not distribute FFmpeg binaries. Report a missing runtime and let the user choose how to install it.
+- Do not install optional GitHub video tools merely because they are detected as missing. Use the basic FFmpeg path unless the requested result needs a listed advanced capability.
 - Never claim a render succeeded until the process exits successfully and the output file exists.

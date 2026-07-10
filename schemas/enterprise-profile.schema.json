@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/coin-workshop3/content-growth-agent-kit/schemas/enterprise-profile.schema.json",
+  "title": "Enterprise profile",
+  "type": "object",
+  "required": ["core_offers"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "company_name": {"type": "string"},
+    "core_offers": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "customer_questions": {"type": "array", "items": {"type": "string"}},
+    "trigger_scenarios": {"type": "array", "items": {"type": "string"}},
+    "competitors": {"type": "array", "items": {"type": "string"}},
+    "proof_points": {"type": "array", "items": {"type": "string"}},
+    "target_platforms": {"type": "array", "items": {"type": "string"}},
+    "boundaries": {"type": "array", "items": {"type": "string"}},
+    "conversion_action": {"type": "string"}
+  },
+  "additionalProperties": true
+}

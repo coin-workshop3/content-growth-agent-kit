@@ -11,8 +11,9 @@ Turn verified enterprise facts into reviewable content opportunities. Keep factu
 
 1. Read the enterprise profile. Accept JSON when available; otherwise structure the user's facts before generation.
 2. Read `references/geo-method.md` when selecting task types or reviewing quality.
-3. Check that at least one core offer exists. Record missing proof, customer language, competitors, or scenarios as gaps.
-4. Run:
+3. Use the repository `protocols/base-methodology.json` by default. Use another protocol only when the user explicitly supplies or selects it.
+4. Check that at least one core offer exists. Record missing proof, customer language, competitors, or scenarios as gaps.
+5. Run:
 
 ```bash
 python3 skills/generate-geo-tasks/scripts/generate_geo_tasks.py \
@@ -20,8 +21,8 @@ python3 skills/generate-geo-tasks/scripts/generate_geo_tasks.py \
   --out <geo-tasks.json>
 ```
 
-5. Review every P0 task. Reject tasks whose query does not resemble a real customer question or whose proposed answer needs unavailable evidence.
-6. Report the generated task count, P0 tasks, evidence gaps, and recommended first content experiment.
+6. Review every P0 task. Reject tasks whose query does not resemble a real customer question or whose proposed answer needs unavailable evidence.
+7. Report the generated task count, P0 tasks, evidence gaps, and recommended first content experiment.
 
 ## Guardrails
 

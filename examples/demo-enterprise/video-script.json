@@ -1,0 +1,28 @@
+{
+  "schema_version": "0.1",
+  "script_id": "demo-video-001",
+  "aspect_ratio": "9:16",
+  "segments": [
+    {
+      "id": "hook",
+      "role": "hook",
+      "text": "只做二十件，很多工厂不愿接怎么办？",
+      "duration": 2.5,
+      "asset_tags": ["hook", "product"]
+    },
+    {
+      "id": "proof",
+      "role": "proof",
+      "text": "先看图纸、材料和检测要求，再判断是否适合小批量打样。",
+      "duration": 4.0,
+      "asset_tags": ["proof", "inspection"]
+    },
+    {
+      "id": "cta",
+      "role": "cta",
+      "text": "提交图纸后，由人工确认可制造性和交期。",
+      "duration": 3.0,
+      "asset_tags": ["cta", "drawing"]
+    }
+  ]
+}

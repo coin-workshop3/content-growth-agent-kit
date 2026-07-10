@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check Python syntax
+        run: |
+          python -m py_compile \
+            skills/generate-geo-tasks/scripts/generate_geo_tasks.py \
+            skills/score-enterprise-content/scripts/calculate_score.py \
+            skills/auto-edit-local-video/scripts/local_video.py \
+            scripts/smoke_test.py
+      - name: Run smoke tests
+        run: python scripts/smoke_test.py

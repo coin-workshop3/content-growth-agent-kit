@@ -1,0 +1,4 @@
+interface:
+  display_name: "企业内容评分"
+  short_description: "按七维证据规则评分企业内容并执行发布前准入判断"
+  default_prompt: "Use $score-enterprise-content to blind-score this draft and give the gating decision."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "生成 GEO 任务"
+  short_description: "从企业事实生成可验证的 GEO 内容任务与监测问题清单"
+  default_prompt: "Use $generate-geo-tasks to turn my verified enterprise facts into reviewable GEO tasks."

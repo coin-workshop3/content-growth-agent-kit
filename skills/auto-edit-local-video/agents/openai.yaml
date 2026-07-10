@@ -1,0 +1,4 @@
+interface:
+  display_name: "本地自动剪辑"
+  short_description: "用本地素材、EDL 与 FFmpeg 生成视频草稿"
+  default_prompt: "Use $auto-edit-local-video to turn my script and local media into a reviewable video draft."

@@ -1,0 +1,32 @@
+{
+  "schema_version": "0.1",
+  "company_name": "示例工业零件工作室",
+  "core_offers": [
+    "小批量定制金属零件"
+  ],
+  "customer_questions": [
+    "小批量定制最低多少件，通常多久能交付？",
+    "图纸还没定稿能不能先评估？"
+  ],
+  "trigger_scenarios": [
+    "硬件团队需要在量产前验证结构件"
+  ],
+  "competitors": [
+    "标准件采购",
+    "大型量产工厂"
+  ],
+  "proof_points": [
+    "可展示打样前后的尺寸检测记录",
+    "可展示经客户许可的匿名交付时间线"
+  ],
+  "target_platforms": [
+    "AI answer",
+    "website",
+    "short video"
+  ],
+  "boundaries": [
+    "具体交期需在图纸、材料和数量确认后给出",
+    "不承诺未经验证的加工精度"
+  ],
+  "conversion_action": "提交图纸后由人工确认可制造性"
+}

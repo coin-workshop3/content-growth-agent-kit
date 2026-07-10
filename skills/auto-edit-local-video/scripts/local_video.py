@@ -9,6 +9,7 @@ import json
 import re
 import shutil
 import subprocess
+import tempfile
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +50,21 @@ def runtime_path(name: str) -> str:
     return found
 
 
+def ffmpeg_filter_available(ffmpeg: str, filter_name: str) -> bool:
+    process = subprocess.run([ffmpeg, "-hide_banner", "-filters"], capture_output=True, text=True, check=False)
+    if process.returncode != 0:
+        return False
+    pattern = re.compile(rf"^\s*[.A-Z|]+\s+{re.escape(filter_name)}\s", re.MULTILINE)
+    return bool(pattern.search(process.stdout))
+
+
+def transcription_provider() -> Optional[dict[str, str]]:
+    whisper = shutil.which("whisper")
+    if whisper:
+        return {"name": "openai-whisper-cli", "command": whisper}
+    return None
+
+
 def version_line(executable: str) -> str:
     process = subprocess.run([executable, "-version"], capture_output=True, text=True, check=False)
     return (process.stdout or process.stderr).splitlines()[0] if process.returncode == 0 else "unavailable"
@@ -57,13 +73,25 @@ def version_line(executable: str) -> str:
 def check_runtime(args: argparse.Namespace) -> None:
     ffmpeg = shutil.which("ffmpeg")
     ffprobe = shutil.which("ffprobe")
+    provider = transcription_provider()
     result = {
-        "schema_version": "0.3",
+        "schema_version": "0.4",
         "ready": bool(ffmpeg and ffprobe),
         "ffmpeg": {"path": ffmpeg, "version": version_line(ffmpeg) if ffmpeg else None},
         "ffprobe": {"path": ffprobe, "version": version_line(ffprobe) if ffprobe else None},
         "distribution": "user-provided runtime; this repository ships no FFmpeg binary",
         "capability_levels": video_protocol(args.protocol).get("capability_levels"),
+        "transcription": {
+            "ready": provider is not None,
+            "provider": provider,
+            "local_only": True,
+            "source_upload": False,
+        },
+        "captions": {
+            "sidecar_srt": True,
+            "burn_in": bool(ffmpeg and ffmpeg_filter_available(ffmpeg, "subtitles")),
+            "required_filter": "subtitles (libass)",
+        },
     }
     if args.out:
         write_json(args.out, result)
@@ -175,7 +203,7 @@ def recommend_mode(args: argparse.Namespace) -> None:
         confidence = 0.35
         reasons.append("The media set is ambiguous; ask the user to choose a mode.")
     result = {
-        "schema_version": "0.3",
+        "schema_version": "0.4",
         "recommended_mode": mode,
         "confidence": confidence,
         "reasons": reasons,
@@ -233,7 +261,7 @@ def detect_silence(args: argparse.Namespace) -> None:
     if pending_start is not None and media_duration > pending_start:
         intervals.append({"start": round(pending_start, 3), "end": round(media_duration, 3), "duration": round(media_duration - pending_start, 3)})
     result = {
-        "schema_version": "0.3",
+        "schema_version": "0.4",
         "mode": "talking_head_cleanup",
         "source": str(source),
         "source_duration": media_duration,
@@ -247,6 +275,160 @@ def detect_silence(args: argparse.Namespace) -> None:
     }
     write_json(args.out, result)
     print(json.dumps({"out": args.out, "silences": len(intervals), "total_silence_duration": result["total_silence_duration"]}, ensure_ascii=False))
+
+
+def normalize_whisper_transcript(raw: dict[str, Any], source: Path, provider: dict[str, str], args: argparse.Namespace) -> dict[str, Any]:
+    raw_segments = raw.get("segments")
+    if not isinstance(raw_segments, list) or not raw_segments:
+        raise SystemExit("local Whisper returned no timestamped segments")
+    segments: list[dict[str, Any]] = []
+    for position, segment in enumerate(raw_segments, start=1):
+        if not isinstance(segment, dict):
+            continue
+        start = float(segment.get("start") or 0)
+        end = float(segment.get("end") or start)
+        text = str(segment.get("text") or "").strip()
+        if end <= start or not text:
+            continue
+        segments.append(
+            {
+                "id": f"auto-{position:04d}",
+                "start": round(start, 3),
+                "end": round(end, 3),
+                "text": text,
+                "action": "review",
+            }
+        )
+    if not segments:
+        raise SystemExit("local Whisper returned no usable timestamped speech")
+    result: dict[str, Any] = {
+        "schema_version": "0.4",
+        "reviewed": False,
+        "language": str(raw.get("language") or args.language or "unknown"),
+        "provider": provider["name"],
+        "model": args.model,
+        "source": str(source),
+        "source_upload": False,
+        "review_gate": "needs_human_review",
+        "segments": segments,
+    }
+    if args.source_asset_id:
+        result["source_asset_id"] = args.source_asset_id
+    return result
+
+
+def transcribe_local(args: argparse.Namespace) -> None:
+    source = Path(args.input).expanduser().resolve()
+    if not source.is_file():
+        raise SystemExit(f"transcription input does not exist: {source}")
+    provider = transcription_provider()
+    if args.provider != "auto" and args.provider != "openai-whisper-cli":
+        raise SystemExit(f"unsupported local transcription provider: {args.provider}")
+    if not provider:
+        raise SystemExit(
+            "local transcription is unavailable: install OpenAI Whisper so the `whisper` command is on PATH; "
+            "the toolkit will not upload media or install it automatically"
+        )
+    output = Path(args.out).expanduser().resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="content-growth-whisper-", dir=str(output.parent)) as temp_raw:
+        temp_dir = Path(temp_raw)
+        command = [
+            provider["command"],
+            str(source),
+            "--model", args.model,
+            "--task", "transcribe",
+            "--output_format", "json",
+            "--output_dir", str(temp_dir),
+            "--verbose", "False",
+        ]
+        if args.language and args.language.lower() != "auto":
+            command.extend(["--language", args.language])
+        process = subprocess.run(command, capture_output=True, text=True, check=False)
+        if process.returncode != 0:
+            detail = (process.stderr or process.stdout or "local Whisper failed").strip()
+            raise SystemExit(detail)
+        candidates = sorted(temp_dir.glob("*.json"))
+        if not candidates:
+            raise SystemExit("local Whisper completed but did not create JSON output")
+        raw = read_json(str(candidates[0]))
+    result = normalize_whisper_transcript(raw, source, provider, args)
+    write_json(str(output), result)
+    print(
+        json.dumps(
+            {
+                "out": str(output),
+                "provider": provider["name"],
+                "segments": len(result["segments"]),
+                "review_gate": result["review_gate"],
+                "source_upload": False,
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
+def split_caption_text(text: str, max_chars: int) -> list[str]:
+    normalized = " ".join(text.strip().split())
+    if not normalized:
+        return []
+    if " " in normalized:
+        chunks: list[str] = []
+        current: list[str] = []
+        for word in normalized.split(" "):
+            candidate = " ".join([*current, word])
+            if current and len(candidate) > max_chars:
+                chunks.append(" ".join(current))
+                current = [word]
+            else:
+                current.append(word)
+        if current:
+            chunks.append(" ".join(current))
+        return chunks
+    chunks = []
+    current = ""
+    punctuation = set("，。！？；：、,.!?;:")
+    for character in normalized:
+        current += character
+        if len(current) >= max_chars or (character in punctuation and len(current) >= max(4, max_chars // 2)):
+            chunks.append(current)
+            current = ""
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def srt_timestamp(seconds: float) -> str:
+    milliseconds = max(0, int(round(seconds * 1000)))
+    hours, remainder = divmod(milliseconds, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    secs, millis = divmod(remainder, 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def make_srt(args: argparse.Namespace) -> None:
+    if args.max_chars < 4:
+        raise SystemExit("--max-chars must be at least 4")
+    edl = read_json(args.edl)
+    entries: list[str] = []
+    timeline = 0.0
+    sequence = 1
+    for clip in edl.get("clips") or []:
+        duration = max(0.0, float(clip.get("duration") or 0))
+        caption = str(clip.get("caption") or "").strip()
+        chunks = split_caption_text(caption, args.max_chars)
+        if chunks and duration > 0:
+            chunk_duration = duration / len(chunks)
+            for position, chunk in enumerate(chunks):
+                start = timeline + position * chunk_duration
+                end = timeline + (position + 1) * chunk_duration
+                entries.extend([str(sequence), f"{srt_timestamp(start)} --> {srt_timestamp(end)}", chunk, ""])
+                sequence += 1
+        timeline += duration
+    output = Path(args.out).expanduser().resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("\n".join(entries), encoding="utf-8")
+    print(json.dumps({"out": str(output), "entries": sequence - 1, "timeline_duration": round(timeline, 3)}, ensure_ascii=False))
 
 
 def choose_talking_head_asset(assets: list[dict[str, Any]], asset_id: Optional[str]) -> dict[str, Any]:
@@ -360,7 +542,7 @@ def make_talking_head_edl(args: argparse.Namespace) -> None:
     protocol = read_json(args.protocol)
     formal_gate = "ready_for_human_review" if semantic_safety == "transcript_reviewed" else "preview_only"
     result = {
-        "schema_version": "0.3",
+        "schema_version": "0.4",
         "protocol_id": protocol.get("protocol_id"),
         "edl_id": f"edl-{source['asset_id']}-talking-head",
         "edit_mode": "talking_head_cleanup",
@@ -442,7 +624,7 @@ def make_edl(args: argparse.Namespace) -> None:
         clips.append(clip)
 
     result = {
-        "schema_version": "0.3",
+        "schema_version": "0.4",
         "protocol_id": protocol.get("protocol_id"),
         "edl_id": f"edl-{script.get('script_id') or 'draft'}",
         "edit_mode": "scripted_asset_assembly",
@@ -473,6 +655,11 @@ def safe_media_path(base: Path, relative: str) -> Path:
     return candidate
 
 
+def escape_subtitles_path(path: Path) -> str:
+    value = str(path).replace("\\", "/")
+    return value.replace(":", "\\:").replace("'", "\\'")
+
+
 def render_edl(args: argparse.Namespace) -> None:
     ffmpeg = runtime_path("ffmpeg")
     edl = read_json(args.edl)
@@ -494,6 +681,14 @@ def render_edl(args: argparse.Namespace) -> None:
     fps = int(render_config.get("fps", 30))
     video_codec = str(render_config.get("video_codec", "libx264"))
     audio_codec = str(render_config.get("audio_codec", "aac"))
+    captions_path = Path(args.captions_srt).expanduser().resolve() if args.captions_srt else None
+    if captions_path and not captions_path.is_file():
+        raise SystemExit(f"caption file does not exist: {captions_path}")
+    burn_in_available = ffmpeg_filter_available(ffmpeg, "subtitles")
+    if captions_path and args.caption_mode == "burn" and not burn_in_available:
+        raise SystemExit("caption burn-in requires an FFmpeg build with the subtitles/libass filter")
+    burn_captions = bool(captions_path and (args.caption_mode == "burn" or (args.caption_mode == "auto" and burn_in_available)))
+    caption_delivery = "burned_in" if burn_captions else ("sidecar_srt" if captions_path else "none")
 
     command = [ffmpeg, "-y"]
     filters: list[str] = []
@@ -526,11 +721,18 @@ def render_edl(args: argparse.Namespace) -> None:
 
     concat_inputs = "".join(f"[v{position}][a{position}]" for position in range(len(clips)))
     end_fade_duration = min(max(0.0, float(edl.get("end_fade_duration") or 0)), max(0.0, total_duration / 2))
-    concat_video_label = "vconcat" if end_fade_duration > 0 else "vout"
-    filters.append(f"{concat_inputs}concat=n={len(clips)}:v=1:a=1[{concat_video_label}][aout]")
+    filters.append(f"{concat_inputs}concat=n={len(clips)}:v=1:a=1[vbase][aout]")
+    current_video_label = "vbase"
     if end_fade_duration > 0:
         fade_start = max(0.0, total_duration - end_fade_duration)
-        filters.append(f"[vconcat]fade=t=out:st={fade_start}:d={end_fade_duration}:color=black[vout]")
+        filters.append(f"[{current_video_label}]fade=t=out:st={fade_start}:d={end_fade_duration}:color=black[vfade]")
+        current_video_label = "vfade"
+    if burn_captions and captions_path:
+        subtitle_path = escape_subtitles_path(captions_path)
+        style = "FontSize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=0,Alignment=2,MarginV=110"
+        filters.append(f"[{current_video_label}]subtitles=filename='{subtitle_path}':force_style='{style}'[vout]")
+    else:
+        filters.append(f"[{current_video_label}]null[vout]")
     output = Path(args.out).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     command.extend(
@@ -548,7 +750,19 @@ def render_edl(args: argparse.Namespace) -> None:
     process = subprocess.run(command, check=False)
     if process.returncode != 0 or not output.is_file() or output.stat().st_size == 0:
         raise SystemExit(f"ffmpeg render failed with exit code {process.returncode}")
-    print(json.dumps({"out": str(output), "bytes": output.stat().st_size, "clips": len(clips), "edit_mode": edl.get("edit_mode")}, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "out": str(output),
+                "bytes": output.stat().st_size,
+                "clips": len(clips),
+                "edit_mode": edl.get("edit_mode"),
+                "caption_delivery": caption_delivery,
+                "captions": str(captions_path) if captions_path else None,
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -578,6 +792,15 @@ def build_parser() -> argparse.ArgumentParser:
     silence.add_argument("--min-duration", type=float, default=0.8)
     silence.set_defaults(func=detect_silence)
 
+    transcribe = subcommands.add_parser("transcribe-local")
+    transcribe.add_argument("--input", required=True)
+    transcribe.add_argument("--out", required=True)
+    transcribe.add_argument("--provider", choices=("auto", "openai-whisper-cli"), default="auto")
+    transcribe.add_argument("--model", default="small")
+    transcribe.add_argument("--language", default="zh")
+    transcribe.add_argument("--source-asset-id")
+    transcribe.set_defaults(func=transcribe_local)
+
     talking = subcommands.add_parser("make-talking-head-edl")
     talking.add_argument("--assets", required=True)
     talking.add_argument("--out", required=True)
@@ -599,6 +822,12 @@ def build_parser() -> argparse.ArgumentParser:
     edl.add_argument("--protocol", default=str(DEFAULT_PROTOCOL))
     edl.set_defaults(func=make_edl)
 
+    captions = subcommands.add_parser("make-srt")
+    captions.add_argument("--edl", required=True)
+    captions.add_argument("--out", required=True)
+    captions.add_argument("--max-chars", type=int, default=16)
+    captions.set_defaults(func=make_srt)
+
     render = subcommands.add_parser("render-edl")
     render.add_argument("--edl", required=True)
     render.add_argument("--assets", required=True)
@@ -606,6 +835,8 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--media-base")
     render.add_argument("--width", type=int)
     render.add_argument("--height", type=int)
+    render.add_argument("--captions-srt")
+    render.add_argument("--caption-mode", choices=("auto", "sidecar", "burn"), default="auto")
     render.add_argument("--protocol", default=str(DEFAULT_PROTOCOL))
     render.add_argument("--dry-run", action="store_true")
     render.set_defaults(func=render_edl)

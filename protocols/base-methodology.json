@@ -1,6 +1,6 @@
 {
-  "schema_version": "0.3",
-  "protocol_id": "content-growth-base-v0.3",
+  "schema_version": "0.4",
+  "protocol_id": "content-growth-base-v0.4",
   "license_scope": "Apache-2.0 open base methodology",
   "geo": {
     "positioning": "AI answer discovery + platform search + AI parsing + monitoring",
@@ -95,10 +95,16 @@
           "method": "transcript-driven keep/delete spans with join review",
           "formal_gate": "ready_for_human_review"
         },
+        "automatic_transcript_path": {
+          "dependencies": ["ffmpeg", "ffprobe", "local OpenAI Whisper CLI"],
+          "method": "local timestamped transcription with no source upload",
+          "formal_gate": "preview_only_until_transcript_reviewed",
+          "model_download_may_be_required": true
+        },
         "standards": {
           "aspect": "9:16",
           "fps": 30,
-          "sentence_safe_cuts": true,
+          "sentence_safe_cuts_require_reviewed_transcript": true,
           "subtitle_style": "white text, black stroke, yellow keyword emphasis",
           "subtitle_layout": "single-line timed phrases",
           "end_fade_sec": 1.0,
@@ -132,8 +138,21 @@
         "outputs": [
           "asset index",
           "tag-matched EDL",
-          "basic 9:16 MP4 draft"
+          "basic 9:16 MP4 draft",
+          "timed SRT sidecar captions"
         ]
+      },
+      "local_transcription_optional": {
+        "dependencies": [
+          "OpenAI Whisper CLI",
+          "local model files"
+        ],
+        "outputs": [
+          "unreviewed timestamped transcript",
+          "transcript-driven preview cut candidates"
+        ],
+        "source_upload": false,
+        "human_transcript_review_required": true
       },
       "advanced_optional": {
         "dependencies": [
@@ -158,7 +177,9 @@
       "fps": 30,
       "video_codec": "libx264",
       "audio_codec": "aac",
-      "talking_head_end_fade_sec": 1.0
+      "talking_head_end_fade_sec": 1.0,
+      "caption_fallback": "sidecar_srt",
+      "caption_burn_in_requires": "ffmpeg subtitles/libass filter"
     },
     "gates": {
       "missing_asset_blocks_render": true,

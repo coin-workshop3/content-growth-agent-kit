@@ -1,6 +1,6 @@
 ---
 name: auto-edit-local-video
-description: "Build reviewable local video drafts with two explicit FFmpeg modes: talking-head cleanup and scripted material assembly. Use when an agent needs to recommend a mode, inspect local media, detect long pauses, use a reviewed transcript for sentence-safe talking-head cuts, match script segments to tagged product assets, generate an EDL, diagnose missing shots, or render a 9:16 draft without uploading media or publishing to a platform."
+description: "Build reviewable local video drafts with two explicit FFmpeg modes: talking-head cleanup and scripted material assembly. Use when an agent needs to recommend a mode, inspect local media, optionally run local Whisper transcription, detect long pauses, use a reviewed transcript for sentence-safe talking-head cuts, generate SRT captions, match script segments to tagged product assets, diagnose missing shots, or render a 9:16 draft without uploading media or publishing to a platform."
 ---
 
 # Auto Edit Local Video
@@ -19,12 +19,14 @@ Use the user-facing command when working in a toolkit project:
 ```bash
 python3 content_growth.py video <project> --mode auto
 python3 content_growth.py video <project> --mode talking-head
+python3 content_growth.py video <project> --mode talking-head --auto-transcribe
 python3 content_growth.py video <project> --mode material-assembly
 ```
 
 ## Talking-head standard
 
 - Prefer `transcript.reviewed.json`. Use its keep/delete segments as sentence-safe cut boundaries.
+- When the user explicitly requests automatic transcription, use `--auto-transcribe` only with an already-installed local Whisper CLI. Keep the generated transcript `reviewed: false`.
 - Without a reviewed transcript, run FFmpeg `silencedetect` and create only a conservative `preview_only` draft.
 - Never claim that a silence-only draft removed filler words, preserved meaning, or completed semantic cleanup.
 - Keep 9:16, 30 fps, local source audio, manual join review, and a one-second visual fade at the end.
@@ -62,20 +64,29 @@ python3 skills/auto-edit-local-video/scripts/local_video.py make-edl \
 ```
 
 6. If the EDL reports missing clips, request or identify the exact shots and regenerate. Use `--allow-fallback` only for a deliberate rough montage.
-7. Render after all clips are resolved:
+7. Generate sidecar captions after all clips are resolved:
+
+```bash
+python3 skills/auto-edit-local-video/scripts/local_video.py make-srt \
+  --edl <edl.json> --out <captions.srt>
+```
+
+8. Render the draft. Use `--caption-mode auto` to burn captions only when the local FFmpeg build supports `subtitles/libass`; otherwise retain the SRT sidecar:
 
 ```bash
 python3 skills/auto-edit-local-video/scripts/local_video.py render-edl \
-  --edl <edl.json> --assets <asset-index.json> --out <draft.mp4>
+  --edl <edl.json> --assets <asset-index.json> --out <draft.mp4> \
+  --captions-srt <captions.srt> --caption-mode auto
 ```
 
-8. Require human review for factual accuracy, framing, pacing, captions, rights, and publication readiness.
+9. Require human review for transcript accuracy, factual accuracy, framing, pacing, captions, rights, and publication readiness.
 
 ## Boundaries
 
 - Keep all media local. Do not upload, publish, log in, or modify social accounts.
 - Use only media paths the user placed in scope. Reject paths escaping the declared media directory.
-- This alpha renderer makes a simple 9:16 cut and preserves source audio when present. It does not transcribe speech, burn captions, normalize loudness, or promise final-edit quality.
+- This alpha renderer makes a simple 9:16 cut and preserves source audio when present. It can call an already-installed local Whisper CLI and always generate SRT; caption burn-in depends on the local FFmpeg build. It does not normalize loudness or promise final-edit quality.
+- Automatic transcripts are unreviewed cut candidates. Never label them sentence-safe or set `reviewed: true` without human verification.
 - A talking-head silence-only result is always `preview_only`; only a reviewed timestamped transcript can move it to `ready_for_human_review`.
 - The repository does not distribute FFmpeg binaries. Report a missing runtime and let the user choose how to install it.
 - Do not install optional GitHub video tools merely because they are detected as missing. Use the basic FFmpeg path unless the requested result needs a listed advanced capability.

@@ -1,5 +1,8 @@
 {
+  "schema_version": "0.4",
   "reviewed": true,
+  "review_gate": "reviewed",
+  "source_upload": false,
   "language": "zh",
   "segments": [
     {

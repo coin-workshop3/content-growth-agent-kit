@@ -55,9 +55,24 @@
           "start": {"type": "number", "minimum": 0},
           "end": {"type": "number", "exclusiveMinimum": 0},
           "text": {"type": "string"},
+          "timestamp_precision": {"enum": ["segment_level", "word_level"]},
+          "words": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["word", "start", "end"],
+              "properties": {
+                "word": {"type": "string"},
+                "start": {"type": "number", "minimum": 0},
+                "end": {"type": "number", "exclusiveMinimum": 0},
+                "probability": {"type": "number", "minimum": 0, "maximum": 1}
+              },
+              "additionalProperties": true
+            }
+          },
           "keep": {"type": "boolean"},
           "action": {"enum": ["keep", "delete", "review"]},
-          "role": {"enum": ["Hook", "Problem", "SceneEmotion", "Product", "Proof", "CTA"]}
+          "role": {"enum": ["Hook", "Problem", "SceneEmotion", "Product", "Proof", "Process", "CTA"]}
         },
         "additionalProperties": true
       }

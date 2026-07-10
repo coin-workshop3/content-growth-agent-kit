@@ -25,11 +25,34 @@
 
 The scanner writes `media_base` and relative asset paths. Agents may improve `tags` but must not change a path without rescanning or verifying the file.
 
+Asset index schema `0.2` reports display-oriented `width` and `height`. For phone videos that use rotation metadata, it also preserves `encoded_width`, `encoded_height`, and `rotation`, so a portrait recording is not mistaken for landscape media.
+
+```json
+{
+  "schema_version": "0.2",
+  "media_base": "/local/project/media",
+  "assets": [
+    {
+      "asset_id": "asset-example",
+      "path": "talking-head.mov",
+      "kind": "video",
+      "width": 2160,
+      "height": 3840,
+      "encoded_width": 3840,
+      "encoded_height": 2160,
+      "rotation": 90,
+      "has_audio": true,
+      "tags": ["talking-head"]
+    }
+  ]
+}
+```
+
 ## EDL
 
 The EDL is the review boundary between planning and rendering. Every clip keeps `segment_id`, `caption`, selected `asset_id`, duration, and match status. A `missing` status blocks rendering.
 
-The alpha renderer outputs 1080×1920, 30 fps, H.264/AAC MP4. It center-crops visual media to fill the canvas. `make-srt` maps EDL captions onto the rendered timeline. Caption burn-in is conditional on the local FFmpeg `subtitles/libass` filter; otherwise the SRT sidecar remains the delivery. Burned captions use a protocol-owned `bold_b2b` or `clean` style profile; SRT itself carries timing and text, not visual styling.
+The alpha renderer outputs 1080×1920, 30 fps, H.264/AAC MP4. It center-crops visual media to fill the canvas. `make-srt` maps EDL captions onto the rendered timeline. Caption burn-in uses the local FFmpeg `subtitles/libass` filter when available; the talking-head single-line path can fall back to Pillow-generated PNG overlays plus FFmpeg `overlay`. If neither path is available, the SRT sidecar remains the delivery. Burned captions use a protocol-owned `bold_b2b`, `clean`, or `white_yellow_keyword` style profile; SRT itself carries timing and text, not visual styling.
 
 ## Talking-head inputs
 

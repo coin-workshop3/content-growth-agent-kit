@@ -17,6 +17,11 @@
           "path": {"type": "string"},
           "kind": {"enum": ["video", "image"]},
           "duration": {"type": "number", "minimum": 0},
+          "width": {"type": "integer", "minimum": 0},
+          "height": {"type": "integer", "minimum": 0},
+          "encoded_width": {"type": "integer", "minimum": 0},
+          "encoded_height": {"type": "integer", "minimum": 0},
+          "rotation": {"type": "integer"},
           "has_audio": {"type": "boolean"},
           "tags": {"type": "array", "items": {"type": "string"}}
         },

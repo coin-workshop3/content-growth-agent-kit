@@ -72,7 +72,7 @@ python3 skills/auto-edit-local-video/scripts/local_video.py make-srt \
   --edl <edl.json> --out <captions.srt>
 ```
 
-8. Render the draft. Use `--caption-mode auto` to burn captions only when the local FFmpeg build supports `subtitles/libass`; otherwise retain the SRT sidecar. The default burn profile is `bold_b2b`; use `--caption-style clean` for a white minimal style:
+8. Render the draft. Use `--caption-mode auto` to burn captions when the local FFmpeg build supports `subtitles/libass`, or when Pillow plus the FFmpeg `overlay` filter can provide the single-line PNG fallback; otherwise retain the SRT sidecar. The default burn profile is `bold_b2b`; use `--caption-style clean` for a white minimal style:
 
 ```bash
 python3 skills/auto-edit-local-video/scripts/local_video.py render-edl \

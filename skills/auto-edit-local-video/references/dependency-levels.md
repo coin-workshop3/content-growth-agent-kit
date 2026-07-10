@@ -10,7 +10,7 @@ Caption burn-in is automatic only when the FFmpeg build exposes the `subtitles` 
 
 ## Optional local transcription
 
-OpenAI Whisper CLI is the supported v0.4 transcription adapter. It runs against local media and writes an unreviewed timestamped transcript. The toolkit does not install it, upload source media, or mark its output reviewed. First use may download the selected model. Filler analysis is deterministic and dependency-free, but it can only inspect words present in the transcript.
+OpenAI Whisper CLI is the supported v0.5 transcription adapter. It runs against local media and writes an unreviewed timestamped transcript with optional word timestamps. The toolkit does not install it, upload source media, or mark its output reviewed. First use may download the selected model. Filler analysis is deterministic and dependency-free, but it can only inspect words present in the transcript.
 
 No additional GitHub video repository is required for this level.
 

@@ -20,6 +20,7 @@ SCORE_SCRIPT = ROOT / "skills/score-enterprise-content/scripts/calculate_score.p
 VIDEO_SCRIPT = ROOT / "skills/auto-edit-local-video/scripts/local_video.py"
 EXAMPLE_DIR = ROOT / "examples/demo-enterprise"
 BASE_PROTOCOL = ROOT / "protocols/base-methodology.json"
+TOOLKIT_VERSION = "0.5.0-alpha"
 
 
 def execute(command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -51,6 +52,10 @@ def ffmpeg_filter_available(ffmpeg: Optional[str], filter_name: str) -> bool:
     )
 
 
+def png_caption_overlay_available(ffmpeg: Optional[str]) -> bool:
+    return bool(ffmpeg and ffmpeg_filter_available(ffmpeg, "overlay") and module_available("PIL"))
+
+
 def setup_report() -> dict[str, Any]:
     system = platform.system().lower()
     if system == "darwin":
@@ -66,7 +71,8 @@ def setup_report() -> dict[str, Any]:
         python_hint = "Install Python 3.9+ with your distribution package manager."
         whisper_hint = "Optional: python3 -m pip install -U openai-whisper. The first model use may download model files."
     return {
-        "schema_version": "0.4",
+        "schema_version": "0.5",
+        "toolkit_version": TOOLKIT_VERSION,
         "platform": platform.system() or "unknown",
         "automatic_install": False,
         "steps": [
@@ -79,8 +85,16 @@ def setup_report() -> dict[str, Any]:
             },
             {
                 "capability": "caption_burn_in",
-                "ready": ffmpeg_filter_available(command_available("ffmpeg"), "subtitles"),
-                "hint": "Optional: use an FFmpeg build that includes the subtitles/libass filter. SRT sidecar output works without it.",
+                "ready": bool(
+                    ffmpeg_filter_available(command_available("ffmpeg"), "subtitles")
+                    or png_caption_overlay_available(command_available("ffmpeg"))
+                ),
+                "hint": "Uses subtitles/libass when available, otherwise Pillow plus FFmpeg overlay for single-line captions; SRT sidecar remains the portable fallback.",
+            },
+            {
+                "capability": "caption_png_overlay",
+                "ready": png_caption_overlay_available(command_available("ffmpeg")),
+                "hint": "Optional fallback: python3 -m pip install -U Pillow. This toolkit never installs it automatically.",
             },
         ],
         "privacy": "Transcription runs locally; this toolkit does not upload source media.",
@@ -99,7 +113,8 @@ def doctor_report() -> dict[str, Any]:
     protocol = json.loads(BASE_PROTOCOL.read_text(encoding="utf-8")) if BASE_PROTOCOL.is_file() else {}
     modes = ((protocol.get("video") or {}).get("modes") or {}) if isinstance(protocol, dict) else {}
     return {
-        "schema_version": "0.4",
+        "schema_version": "0.5",
+        "toolkit_version": TOOLKIT_VERSION,
         "methodology": {
             "ready": BASE_PROTOCOL.is_file(),
             "protocol": str(BASE_PROTOCOL),
@@ -130,7 +145,8 @@ def doctor_report() -> dict[str, Any]:
         "captions": {
             "sidecar_srt": True,
             "burn_in": ffmpeg_filter_available(ffmpeg, "subtitles"),
-            "fallback": "sidecar_srt",
+            "png_overlay": png_caption_overlay_available(ffmpeg),
+            "fallback": "png_overlay_then_sidecar_srt" if png_caption_overlay_available(ffmpeg) else "sidecar_srt",
         },
         "video_modes": {
             "talking_head_cleanup": {
@@ -171,7 +187,9 @@ def print_doctor(report: dict[str, Any]) -> None:
     print(f"  Local transcription: {'READY' if report['local_transcription']['ready'] else 'OPTIONAL / NOT READY'}")
     print(
         "  Captions: SRT READY, "
-        f"burn-in={'READY' if report['captions']['burn_in'] else 'NOT AVAILABLE (SRT fallback)'}"
+        f"libass={'READY' if report['captions']['burn_in'] else 'NOT AVAILABLE'}, "
+        f"PNG overlay={'READY' if report['captions'].get('png_overlay') else 'NOT AVAILABLE'}, "
+        f"fallback={report['captions']['fallback']}"
     )
     optional = report["optional_video"]
     ready_optional = [
@@ -336,6 +354,7 @@ def run_talking_head(
     auto_transcribe: bool = False,
     transcription_model: str = "small",
     language: str = "zh",
+    word_timestamps: bool = True,
 ) -> dict[str, Any]:
     media = workspace / "media"
     output.mkdir(parents=True, exist_ok=True)
@@ -343,6 +362,8 @@ def run_talking_head(
     edl = output / "edl.talking-head.json"
     draft = output / "draft.talking-head.mp4"
     captions = output / "captions.talking-head.srt"
+    join_report = output / "join-review.json"
+    sync_report = output / "sync-report.talking-head.json"
     execute([sys.executable, str(VIDEO_SCRIPT), "scan-assets", "--media-dir", str(media), "--out", str(assets_path)], capture=True)
     index = json.loads(assets_path.read_text(encoding="utf-8"))
     source_asset = next(
@@ -384,6 +405,7 @@ def run_talking_head(
                     "--model", transcription_model,
                     "--language", language,
                     "--source-asset-id", str(source_asset["asset_id"]),
+                    *(["--word-timestamps"] if word_timestamps else []),
                 ]
             )
             transcription["status"] = "complete_needs_human_review"
@@ -400,6 +422,11 @@ def run_talking_head(
         "--assets", str(assets_path),
         "--asset-id", str(source_asset["asset_id"]),
         "--out", str(edl),
+        "--pre-roll", "0.04",
+        "--post-roll", "0.06",
+        "--min-silence-gap", "0.08",
+        "--final-tail", "0.5",
+        "--join-report-out", str(join_report),
     ]
     silence_report = output / "silence-report.json"
     if transcript.is_file():
@@ -430,7 +457,22 @@ def run_talking_head(
         "--out", str(draft),
     ]
     if caption_result.get("entries", 0) > 0:
-        render_command.extend(["--captions-srt", str(captions), "--caption-mode", "auto"])
+        render_command.extend(
+            [
+                "--captions-srt", str(captions),
+                "--caption-mode", "auto",
+                "--caption-layout", "single_line_sequence",
+                "--caption-style", "white_yellow_keyword",
+            ]
+        )
+    render_command.extend(
+        [
+            "--transition", "fade",
+            "--transition-duration", "0.18",
+            "--audio-transition", "acrossfade",
+            "--sync-report-out", str(sync_report),
+        ]
+    )
     if fast_preview:
         render_command.extend(["--width", "320", "--height", "568"])
     render_result = execute_json(render_command)
@@ -451,7 +493,12 @@ def run_talking_head(
         "caption_delivery": render_result.get("caption_delivery"),
         "caption_style": render_result.get("caption_style"),
         "caption_style_applied": render_result.get("caption_style_applied"),
+        "transition": render_result.get("transition"),
+        "transition_duration": render_result.get("transition_duration"),
+        "audio_transition": render_result.get("audio_transition"),
+        "sync_report": render_result.get("sync_report"),
         "joins_requiring_review": len(edl_data.get("join_review") or []),
+        "join_report": str(join_report) if join_report.is_file() else None,
         "human_review_required": True,
     }
 
@@ -466,6 +513,7 @@ def run_workspace_video(
     auto_transcribe: bool = False,
     transcription_model: str = "small",
     language: str = "zh",
+    word_timestamps: bool = True,
 ) -> dict[str, Any]:
     selected = mode
     recommendation = None
@@ -487,6 +535,7 @@ def run_workspace_video(
             auto_transcribe=auto_transcribe,
             transcription_model=transcription_model,
             language=language,
+            word_timestamps=word_timestamps,
         )
     elif selected in {"material-assembly", "scripted_asset_assembly"}:
         script = workspace / "video-script.json"
@@ -517,6 +566,7 @@ def command_video(args: argparse.Namespace) -> None:
         auto_transcribe=args.auto_transcribe,
         transcription_model=args.transcription_model,
         language=args.language,
+        word_timestamps=args.word_timestamps,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result.get("status") in {"blocked", "needs_mode_choice"}:
@@ -562,6 +612,7 @@ def command_transcribe(args: argparse.Namespace) -> None:
             "--model", args.model,
             "--language", args.language,
             "--source-asset-id", str(source_asset["asset_id"]),
+            *(["--word-timestamps"] if args.word_timestamps else []),
         ]
     )
     result["next_step"] = f"Review {transcript}, set reviewed=true only after checking timestamps and text, then run talking-head mode."
@@ -599,7 +650,7 @@ def write_summary(output: Path, summary: dict[str, Any]) -> None:
 def command_demo(args: argparse.Namespace) -> None:
     output = Path(args.out).expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
-    summary: dict[str, Any] = {"schema_version": "0.4", "mode": "synthetic-demo", "output": str(output)}
+    summary: dict[str, Any] = {"schema_version": "0.5", "toolkit_version": TOOLKIT_VERSION, "mode": "synthetic-demo", "output": str(output)}
     geo_output = output / "geo-tasks.json"
     score_output = output / "score-result.json"
     run_geo(EXAMPLE_DIR / "enterprise-profile.json", geo_output)
@@ -718,7 +769,7 @@ def command_run(args: argparse.Namespace) -> None:
         raise SystemExit(f"workspace does not exist: {workspace}; run init first")
     output = workspace / "output"
     output.mkdir(parents=True, exist_ok=True)
-    summary: dict[str, Any] = {"schema_version": "0.4", "mode": "workspace", "workspace": str(workspace)}
+    summary: dict[str, Any] = {"schema_version": "0.5", "toolkit_version": TOOLKIT_VERSION, "mode": "workspace", "workspace": str(workspace)}
     profile = workspace / "enterprise-profile.json"
     if not profile.is_file():
         raise SystemExit("enterprise-profile.json is required")
@@ -754,6 +805,7 @@ def command_run(args: argparse.Namespace) -> None:
                 auto_transcribe=args.video_auto_transcribe,
                 transcription_model=args.transcription_model,
                 language=args.language,
+                word_timestamps=args.word_timestamps,
             )
         else:
             summary["video"] = {"status": "blocked", "reason": "ffmpeg/ffprobe unavailable"}
@@ -773,6 +825,7 @@ def command_run(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Content Growth Agent Kit")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {TOOLKIT_VERSION}")
     subcommands = parser.add_subparsers(dest="command", required=True)
 
     doctor = subcommands.add_parser("doctor", help="Check required and optional capabilities")
@@ -800,6 +853,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--video-auto-transcribe", action="store_true", help="Use an already-installed local Whisper CLI when no transcript exists")
     run.add_argument("--transcription-model", default="small")
     run.add_argument("--language", default="zh")
+    run.add_argument("--word-timestamps", action=argparse.BooleanOptionalAction, default=True)
     run.add_argument("--strict", action="store_true", help="Exit 2 when any requested stage is incomplete")
     run.set_defaults(func=command_run)
 
@@ -811,6 +865,7 @@ def build_parser() -> argparse.ArgumentParser:
     video.add_argument("--auto-transcribe", action="store_true", help="Use an already-installed local Whisper CLI when no transcript exists")
     video.add_argument("--transcription-model", default="small")
     video.add_argument("--language", default="zh")
+    video.add_argument("--word-timestamps", action=argparse.BooleanOptionalAction, default=True)
     video.set_defaults(func=command_video)
 
     transcribe = subcommands.add_parser("transcribe", help="Create an unreviewed timestamped transcript with local Whisper")
@@ -818,6 +873,7 @@ def build_parser() -> argparse.ArgumentParser:
     transcribe.add_argument("--asset-id")
     transcribe.add_argument("--model", default="small")
     transcribe.add_argument("--language", default="zh")
+    transcribe.add_argument("--word-timestamps", action=argparse.BooleanOptionalAction, default=True)
     transcribe.add_argument("--out")
     transcribe.set_defaults(func=command_transcribe)
 

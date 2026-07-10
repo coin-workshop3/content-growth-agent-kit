@@ -129,6 +129,13 @@
         }
       }
     },
+    "transcript_review": {
+      "filler_candidate_types": ["hesitation", "repetition"],
+      "automatic_deletion": false,
+      "candidate_timestamp_precision": "estimated_from_segment",
+      "human_audio_review_required": true,
+      "absence_of_candidate_is_not_proof_of_clean_audio": true
+    },
     "capability_levels": {
       "basic": {
         "dependencies": [
@@ -179,7 +186,30 @@
       "audio_codec": "aac",
       "talking_head_end_fade_sec": 1.0,
       "caption_fallback": "sidecar_srt",
-      "caption_burn_in_requires": "ffmpeg subtitles/libass filter"
+      "caption_burn_in_requires": "ffmpeg subtitles/libass filter",
+      "default_caption_style": "bold_b2b",
+      "caption_styles": {
+        "clean": {
+          "FontSize": 18,
+          "PrimaryColour": "&H00FFFFFF",
+          "OutlineColour": "&H00000000",
+          "BorderStyle": 1,
+          "Outline": 2,
+          "Shadow": 0,
+          "Alignment": 2,
+          "MarginV": 110
+        },
+        "bold_b2b": {
+          "FontSize": 20,
+          "PrimaryColour": "&H0000FFFF",
+          "OutlineColour": "&H00000000",
+          "BorderStyle": 1,
+          "Outline": 3,
+          "Shadow": 0,
+          "Alignment": 2,
+          "MarginV": 125
+        }
+      }
     },
     "gates": {
       "missing_asset_blocks_render": true,

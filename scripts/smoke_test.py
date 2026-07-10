@@ -65,10 +65,10 @@ output_dir = Path(sys.argv[sys.argv.index("--output_dir") + 1])
 output_dir.mkdir(parents=True, exist_ok=True)
 (output_dir / f"{source.stem}.json").write_text(json.dumps({
     "language": "zh",
-    "text": "自动转写测试。第二句话。",
+    "text": "自动转写测试。然后然后第二句话。",
     "segments": [
         {"start": 0.2, "end": 2.0, "text": "自动转写测试。"},
-        {"start": 3.1, "end": 5.0, "text": "第二句话。"}
+        {"start": 3.1, "end": 5.0, "text": "然后然后第二句话。"}
     ]
 }, ensure_ascii=False), encoding="utf-8")
 """,
@@ -176,6 +176,7 @@ def main() -> None:
                 )
                 assert auto_result["source_strategy"] == "local_whisper_unreviewed"
                 assert auto_result["transcription"]["status"] == "complete_needs_human_review"
+                assert auto_result["transcription"]["filler_candidates"] == 1
                 assert auto_result["formal_gate"] == "preview_only"
                 assert auto_result["caption_entries"] == 2
                 assert Path(auto_result["captions"]).stat().st_size > 0
@@ -186,6 +187,18 @@ def main() -> None:
                     ).stdout
                 )
                 assert transcribe_result["review_gate"] == "needs_human_review"
+                assert transcribe_result["filler_candidates"] == 1
+                auto_transcript = json.loads(
+                    (talking_workspace / "output/video/transcript.auto.json").read_text(encoding="utf-8")
+                )
+                assert auto_transcript["filler_review"]["candidate_count"] == 1
+                assert auto_transcript["filler_review"]["automatic_deletion"] is False
+                review_result = json.loads(
+                    run([sys.executable, "content_growth.py", "review-transcript", str(talking_workspace)]).stdout
+                )
+                assert review_result["candidate_count"] == 1
+                assert review_result["automatic_deletion"] is False
+                assert (talking_workspace / "output/video/transcript.review-candidates.json").is_file()
                 reused_result = json.loads(
                     run(
                         [sys.executable, "content_growth.py", "video", str(talking_workspace), "--mode", "talking-head", "--fast-preview"]
@@ -219,6 +232,8 @@ def main() -> None:
             assert material_result["caption_entries"] > 0
             assert Path(material_result["captions"]).stat().st_size > 0
             assert material_result["caption_delivery"] in {"sidecar_srt", "burned_in"}
+            assert material_result["caption_style"] == "bold_b2b"
+            assert material_result["caption_style_applied"] == (material_result["caption_delivery"] == "burned_in")
 
             ambiguous_workspace = temp / "ambiguous-workspace"
             ambiguous_media = ambiguous_workspace / "media"

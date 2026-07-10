@@ -41,6 +41,12 @@ def main() -> None:
         raise SystemExit("video protocol must expose exactly the two supported editing modes")
     if (video.get("render") or {}).get("caption_fallback") != "sidecar_srt":
         raise SystemExit("video protocol must preserve portable SRT captions when burn-in is unavailable")
+    caption_styles = (video.get("render") or {}).get("caption_styles") or {}
+    if not {"clean", "bold_b2b"}.issubset(caption_styles):
+        raise SystemExit("video protocol must define clean and bold_b2b caption styles")
+    transcript_review = video.get("transcript_review") or {}
+    if transcript_review.get("automatic_deletion") is not False or transcript_review.get("human_audio_review_required") is not True:
+        raise SystemExit("transcript review must prohibit automatic deletion and require human audio review")
     local_transcription = (video.get("capability_levels") or {}).get("local_transcription_optional") or {}
     if local_transcription.get("source_upload") is not False or local_transcription.get("human_transcript_review_required") is not True:
         raise SystemExit("local transcription must prohibit source upload and require human transcript review")

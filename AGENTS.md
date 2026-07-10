@@ -18,3 +18,4 @@ This repository is an agent-native toolkit, not a hosted platform. Keep enterpri
 - Run the relevant script and its smoke test after changing behavior.
 - Keep the toolkit usable with Python 3.9+ standard library. FFmpeg/ffprobe are optional dependencies used only by video operations.
 - Prefer `python3 content_growth.py doctor|demo|init|run` for user-facing workflows; keep lower-level skill scripts available for agents and debugging.
+- For local video, run `content_growth.py video <project> --mode auto` unless the user explicitly chooses `talking-head` or `material-assembly`. Never present silence-only talking-head output as sentence-safe semantic cleanup.

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/coin-workshop3/content-growth-agent-kit/schemas/silence-report.schema.json",
+  "title": "FFmpeg talking-head silence report",
+  "type": "object",
+  "required": ["mode", "source", "source_duration", "silences", "semantic_safety", "formal_gate", "human_review_required"],
+  "properties": {
+    "mode": {"const": "talking_head_cleanup"},
+    "source": {"type": "string"},
+    "source_duration": {"type": "number", "exclusiveMinimum": 0},
+    "silences": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["start", "end", "duration"],
+        "properties": {
+          "start": {"type": "number", "minimum": 0},
+          "end": {"type": "number", "minimum": 0},
+          "duration": {"type": "number", "minimum": 0}
+        }
+      }
+    },
+    "semantic_safety": {"const": "unverified"},
+    "formal_gate": {"const": "preview_only"},
+    "human_review_required": {"const": true}
+  },
+  "additionalProperties": true
+}

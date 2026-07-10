@@ -1,0 +1,33 @@
+{
+  "reviewed": true,
+  "language": "zh",
+  "segments": [
+    {
+      "id": "hook",
+      "start": 0.2,
+      "end": 2.1,
+      "text": "只做二十件，很多工厂不愿接怎么办？",
+      "keep": true,
+      "action": "keep",
+      "role": "Hook"
+    },
+    {
+      "id": "proof",
+      "start": 3.1,
+      "end": 5.0,
+      "text": "先确认图纸、材料和检测要求。",
+      "keep": true,
+      "action": "keep",
+      "role": "Proof"
+    },
+    {
+      "id": "cta",
+      "start": 6.2,
+      "end": 7.8,
+      "text": "提交图纸后再由人工确认交期。",
+      "keep": true,
+      "action": "keep",
+      "role": "CTA"
+    }
+  ]
+}

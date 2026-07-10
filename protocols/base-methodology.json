@@ -1,6 +1,6 @@
 {
-  "schema_version": "0.2",
-  "protocol_id": "content-growth-base-v0.2",
+  "schema_version": "0.3",
+  "protocol_id": "content-growth-base-v0.3",
   "license_scope": "Apache-2.0 open base methodology",
   "geo": {
     "positioning": "AI answer discovery + platform search + AI parsing + monitoring",
@@ -79,6 +79,50 @@
     ]
   },
   "video": {
+    "modes": {
+      "talking_head_cleanup": {
+        "label": "口播精剪",
+        "aliases": ["talking-head"],
+        "best_for": ["single talking-head video", "owner or creator explanation", "trust-led B2B content"],
+        "base_path": {
+          "dependencies": ["ffmpeg", "ffprobe"],
+          "method": "silencedetect with conservative padding",
+          "formal_gate": "preview_only",
+          "limitation": "Silence boundaries do not prove sentence or semantic safety."
+        },
+        "reviewed_path": {
+          "dependencies": ["ffmpeg", "ffprobe", "reviewed timestamped transcript"],
+          "method": "transcript-driven keep/delete spans with join review",
+          "formal_gate": "ready_for_human_review"
+        },
+        "standards": {
+          "aspect": "9:16",
+          "fps": 30,
+          "sentence_safe_cuts": true,
+          "subtitle_style": "white text, black stroke, yellow keyword emphasis",
+          "subtitle_layout": "single-line timed phrases",
+          "end_fade_sec": 1.0,
+          "never_claim_semantic_cleanup_without_reviewed_transcript": true
+        }
+      },
+      "scripted_asset_assembly": {
+        "label": "素材拼接",
+        "aliases": ["material-assembly"],
+        "best_for": ["structured script plus multiple local assets", "FAQ or proof videos", "product and delivery scenes"],
+        "base_path": {
+          "dependencies": ["ffmpeg", "ffprobe"],
+          "method": "script segment and filename/folder tag matching",
+          "formal_gate": "draft_requires_human_review"
+        },
+        "standards": {
+          "semantic_roles": ["Hook", "Problem", "SceneEmotion", "Product", "Proof", "CTA"],
+          "missing_asset_blocks_render": true,
+          "prefer_unused_assets": true,
+          "same_product_series_required_for_effect_review": true,
+          "confirmed_spoken_copy_required_for_formal_caption_acceptance": true
+        }
+      }
+    },
     "capability_levels": {
       "basic": {
         "dependencies": [
@@ -101,7 +145,7 @@
         ],
         "outputs": [
           "word timestamps",
-          "sentence-safe silence cuts",
+          "reviewed transcript cut candidates",
           "styled captions",
           "motion packaging",
           "Jianying draft export"
@@ -113,7 +157,8 @@
       "height": 1920,
       "fps": 30,
       "video_codec": "libx264",
-      "audio_codec": "aac"
+      "audio_codec": "aac",
+      "talking_head_end_fade_sec": 1.0
     },
     "gates": {
       "missing_asset_blocks_render": true,

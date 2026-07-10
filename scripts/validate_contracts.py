@@ -19,8 +19,8 @@ def read(path: Path) -> dict:
 
 def main() -> None:
     schemas = sorted((ROOT / "schemas").glob("*.schema.json"))
-    if len(schemas) < 6:
-        raise SystemExit("expected at least six base schemas")
+    if len(schemas) < 8:
+        raise SystemExit("expected at least eight base schemas")
     for path in schemas:
         value = read(path)
         if value.get("$schema") != "https://json-schema.org/draft/2020-12/schema":

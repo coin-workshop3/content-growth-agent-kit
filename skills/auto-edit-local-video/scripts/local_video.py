@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
 import shutil
@@ -67,6 +68,10 @@ def ffmpeg_filter_available(ffmpeg: str, filter_name: str) -> bool:
     return bool(pattern.search(process.stdout))
 
 
+def pillow_available() -> bool:
+    return importlib.util.find_spec("PIL") is not None
+
+
 def transcription_provider() -> Optional[dict[str, str]]:
     whisper = shutil.which("whisper")
     if whisper:
@@ -84,7 +89,7 @@ def check_runtime(args: argparse.Namespace) -> None:
     ffprobe = shutil.which("ffprobe")
     provider = transcription_provider()
     result = {
-        "schema_version": "0.4",
+        "schema_version": "0.5",
         "ready": bool(ffmpeg and ffprobe),
         "ffmpeg": {"path": ffmpeg, "version": version_line(ffmpeg) if ffmpeg else None},
         "ffprobe": {"path": ffprobe, "version": version_line(ffprobe) if ffprobe else None},
@@ -99,6 +104,7 @@ def check_runtime(args: argparse.Namespace) -> None:
         "captions": {
             "sidecar_srt": True,
             "burn_in": bool(ffmpeg and ffmpeg_filter_available(ffmpeg, "subtitles")),
+            "png_overlay": bool(ffmpeg and ffmpeg_filter_available(ffmpeg, "overlay") and pillow_available()),
             "required_filter": "subtitles (libass)",
         },
     }
@@ -107,12 +113,29 @@ def check_runtime(args: argparse.Namespace) -> None:
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
+def display_dimensions(video: dict[str, Any]) -> tuple[int, int, int]:
+    encoded_width = int(video.get("width") or 0)
+    encoded_height = int(video.get("height") or 0)
+    rotation = 0
+    for side_data in video.get("side_data_list") or []:
+        if not isinstance(side_data, dict) or side_data.get("rotation") is None:
+            continue
+        try:
+            rotation = int(round(float(side_data["rotation"])))
+        except (TypeError, ValueError):
+            rotation = 0
+        break
+    if rotation % 360 in {90, 270}:
+        return encoded_height, encoded_width, rotation
+    return encoded_width, encoded_height, rotation
+
+
 def probe(path: Path, ffprobe: str) -> dict[str, Any]:
     process = subprocess.run(
         [
             ffprobe,
             "-v", "error",
-            "-show_entries", "format=duration:stream=codec_type,width,height",
+            "-show_entries", "format=duration:stream=codec_type,width,height:stream_side_data=rotation",
             "-of", "json",
             str(path),
         ],
@@ -125,6 +148,9 @@ def probe(path: Path, ffprobe: str) -> dict[str, Any]:
     data = json.loads(process.stdout)
     streams = data.get("streams") or []
     video = next((item for item in streams if item.get("codec_type") == "video"), {})
+    encoded_width = int(video.get("width") or 0)
+    encoded_height = int(video.get("height") or 0)
+    width, height, rotation = display_dimensions(video)
     duration_raw = (data.get("format") or {}).get("duration")
     try:
         duration = round(float(duration_raw), 3)
@@ -132,8 +158,11 @@ def probe(path: Path, ffprobe: str) -> dict[str, Any]:
         duration = 0.0
     return {
         "duration": duration,
-        "width": int(video.get("width") or 0),
-        "height": int(video.get("height") or 0),
+        "width": width,
+        "height": height,
+        "encoded_width": encoded_width,
+        "encoded_height": encoded_height,
+        "rotation": rotation,
         "has_audio": any(item.get("codec_type") == "audio" for item in streams),
     }
 
@@ -172,7 +201,7 @@ def scan_assets(args: argparse.Namespace) -> None:
             }
         )
     result = {
-        "schema_version": "0.1",
+        "schema_version": "0.2",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "media_base": str(media_base),
         "assets": assets,
@@ -212,7 +241,7 @@ def recommend_mode(args: argparse.Namespace) -> None:
         confidence = 0.35
         reasons.append("The media set is ambiguous; ask the user to choose a mode.")
     result = {
-        "schema_version": "0.4",
+        "schema_version": "0.5",
         "recommended_mode": mode,
         "confidence": confidence,
         "reasons": reasons,
@@ -270,7 +299,7 @@ def detect_silence(args: argparse.Namespace) -> None:
     if pending_start is not None and media_duration > pending_start:
         intervals.append({"start": round(pending_start, 3), "end": round(media_duration, 3), "duration": round(media_duration - pending_start, 3)})
     result = {
-        "schema_version": "0.4",
+        "schema_version": "0.5",
         "mode": "talking_head_cleanup",
         "source": str(source),
         "source_duration": media_duration,
@@ -297,21 +326,42 @@ def normalize_whisper_transcript(raw: dict[str, Any], source: Path, provider: di
         start = float(segment.get("start") or 0)
         end = float(segment.get("end") or start)
         text = str(segment.get("text") or "").strip()
-        if end <= start or not text:
+        if end - start < 0.2 or not text:
             continue
-        segments.append(
-            {
-                "id": f"auto-{position:04d}",
-                "start": round(start, 3),
-                "end": round(end, 3),
-                "text": text,
-                "action": "review",
+        normalized_segment: dict[str, Any] = {
+            "id": f"auto-{position:04d}",
+            "start": round(start, 3),
+            "end": round(end, 3),
+            "text": text,
+            "action": "review",
+        }
+        words: list[dict[str, Any]] = []
+        for word in segment.get("words") or []:
+            if not isinstance(word, dict):
+                continue
+            word_start = float(word.get("start") or 0)
+            word_end = float(word.get("end") or word_start)
+            word_text = str(word.get("word") or "").strip()
+            if word_end <= word_start or not word_text:
+                continue
+            normalized_word: dict[str, Any] = {
+                "word": word_text,
+                "start": round(word_start, 3),
+                "end": round(word_end, 3),
             }
-        )
+            if isinstance(word.get("probability"), (int, float)):
+                normalized_word["probability"] = round(float(word["probability"]), 4)
+            words.append(normalized_word)
+        if words:
+            normalized_segment["words"] = words
+            normalized_segment["timestamp_precision"] = "word_level"
+        else:
+            normalized_segment["timestamp_precision"] = "segment_level"
+        segments.append(normalized_segment)
     if not segments:
         raise SystemExit("local Whisper returned no usable timestamped speech")
     result: dict[str, Any] = {
-        "schema_version": "0.4",
+        "schema_version": "0.5",
         "reviewed": False,
         "language": str(raw.get("language") or args.language or "unknown"),
         "provider": provider["name"],
@@ -414,6 +464,8 @@ def transcribe_local(args: argparse.Namespace) -> None:
         ]
         if args.language and args.language.lower() != "auto":
             command.extend(["--language", args.language])
+        if args.word_timestamps:
+            command.extend(["--word_timestamps", "True"])
         process = subprocess.run(command, capture_output=True, text=True, check=False)
         if process.returncode != 0:
             detail = (process.stderr or process.stdout or "local Whisper failed").strip()
@@ -443,7 +495,7 @@ def split_caption_text(text: str, max_chars: int) -> list[str]:
     normalized = " ".join(text.strip().split())
     if not normalized:
         return []
-    if " " in normalized:
+    if not re.search(r"[\u3400-\u9fff]", normalized):
         chunks: list[str] = []
         current: list[str] = []
         for word in normalized.split(" "):
@@ -456,16 +508,28 @@ def split_caption_text(text: str, max_chars: int) -> list[str]:
         if current:
             chunks.append(" ".join(current))
         return chunks
+    normalized = re.sub(
+        r"(?<=[\u3400-\u9fff，。！？；：、,.!?;:]) +(?=[\u3400-\u9fff，。！？；：、,.!?;:])",
+        "",
+        normalized,
+    )
     chunks = []
     current = ""
     punctuation = set("，。！？；：、,.!?;:")
-    for character in normalized:
+    for index, character in enumerate(normalized):
         current += character
-        if len(current) >= max_chars or (character in punctuation and len(current) >= max(4, max_chars // 2)):
-            chunks.append(current)
+        next_character = normalized[index + 1] if index + 1 < len(normalized) else ""
+        natural_break = character in punctuation and len(current) >= max(4, max_chars // 2)
+        length_break = len(current) >= max_chars and next_character not in punctuation
+        if natural_break or length_break:
+            chunks.append(current.strip())
             current = ""
-    if current:
-        chunks.append(current)
+    remainder = current.strip()
+    if remainder:
+        if chunks and all(character in punctuation for character in remainder):
+            chunks[-1] += remainder
+        else:
+            chunks.append(remainder)
     return chunks
 
 
@@ -514,7 +578,57 @@ def choose_talking_head_asset(assets: list[dict[str, Any]], asset_id: Optional[s
     return selected
 
 
-def transcript_spans(transcript: dict[str, Any], source_duration: float, pre_roll: float, post_roll: float) -> tuple[list[dict[str, Any]], str]:
+def transcript_segment_bounds(segment: dict[str, Any]) -> tuple[float, float, str]:
+    words = [word for word in (segment.get("words") or []) if isinstance(word, dict)]
+    valid_words = [
+        word
+        for word in words
+        if float(word.get("end") or 0) > float(word.get("start") or 0) and str(word.get("word") or "").strip()
+    ]
+    if valid_words:
+        return float(valid_words[0]["start"]), float(valid_words[-1]["end"]), "word_level"
+    start = float(segment.get("start") or 0)
+    return start, float(segment.get("end") or start), "segment_level"
+
+
+def merge_stage_heading_spans(spans: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    stage_heading = re.compile(r"^第[一二三四五六七八九十百0-9]+阶段[：:]?$")
+    index = 0
+    while index < len(spans):
+        current = dict(spans[index])
+        caption = str(current.get("caption") or "").strip()
+        following_gap = (
+            float(spans[index + 1]["start"]) - float(current["end"])
+            if index + 1 < len(spans)
+            else float("inf")
+        )
+        if stage_heading.match(caption) and index + 1 < len(spans) and following_gap <= 0.8:
+            following = spans[index + 1]
+            current["end"] = following["end"]
+            current["caption"] = f"{caption} {str(following.get('caption') or '').strip()}".strip()
+            current["segment_id"] = f"{current['segment_id']}+{following['segment_id']}"
+            current["source_timing"] = (
+                "word_level" if current.get("source_timing") == following.get("source_timing") == "word_level" else "mixed"
+            )
+            current["stage_heading_merged"] = True
+            index += 2
+        else:
+            merged.append(current)
+            index += 1
+            continue
+        merged.append(current)
+    return merged
+
+
+def transcript_spans(
+    transcript: dict[str, Any],
+    source_duration: float,
+    pre_roll: float,
+    post_roll: float,
+    min_silence_gap: float,
+    final_tail: float,
+) -> tuple[list[dict[str, Any]], str, list[dict[str, Any]]]:
     raw_segments = transcript.get("segments")
     if not isinstance(raw_segments, list) or not raw_segments:
         raise SystemExit("transcript.segments must be a non-empty array")
@@ -522,17 +636,53 @@ def transcript_spans(transcript: dict[str, Any], source_duration: float, pre_rol
     for index, segment in enumerate(raw_segments, start=1):
         if not isinstance(segment, dict) or segment.get("keep") is False or str(segment.get("action") or "").lower() in {"delete", "skip"}:
             continue
-        start = max(0.0, float(segment.get("start") or 0) - pre_roll)
-        end = min(source_duration, float(segment.get("end") or start) + post_roll)
-        if spans and start < float(spans[-1]["end"]):
-            start = float(spans[-1]["end"])
+        raw_start, raw_end, source_timing = transcript_segment_bounds(segment)
+        start = max(0.0, raw_start - pre_roll)
+        end = min(source_duration, raw_end + post_roll)
         if end - start < 0.2:
             continue
-        spans.append({"start": start, "end": end, "caption": str(segment.get("text") or ""), "segment_id": segment.get("id") or f"sentence-{index:03d}"})
+        spans.append(
+            {
+                "start": start,
+                "end": end,
+                "caption": str(segment.get("text") or ""),
+                "segment_id": segment.get("id") or f"sentence-{index:03d}",
+                "source_timing": source_timing,
+            }
+        )
     if not spans:
         raise SystemExit("no transcript segments survived the keep/delete gate")
+    spans = merge_stage_heading_spans(spans)
+    joins: list[dict[str, Any]] = []
+    for index in range(1, len(spans)):
+        previous = spans[index - 1]
+        current = spans[index]
+        gap_before = float(current["start"]) - float(previous["end"])
+        action = "pass"
+        if gap_before < min_silence_gap:
+            overlap = max(0.0, -gap_before)
+            midpoint = (float(previous["end"]) + float(current["start"])) / 2
+            previous["end"] = max(float(previous["start"]) + 0.2, midpoint - min_silence_gap / 2)
+            current["start"] = min(float(current["end"]) - 0.2, midpoint + min_silence_gap / 2)
+            action = "tighten_both_boundaries"
+        else:
+            overlap = 0.0
+        joins.append(
+            {
+                "previous_segment_id": previous["segment_id"],
+                "current_segment_id": current["segment_id"],
+                "gap_before_adjust_sec": round(gap_before, 3),
+                "gap_after_adjust_sec": round(float(current["start"]) - float(previous["end"]), 3),
+                "overlap_before_adjust_sec": round(overlap, 3),
+                "action": action,
+                "status": "manual_check",
+                "previous_text": str(previous.get("caption") or ""),
+                "current_text": str(current.get("caption") or ""),
+            }
+        )
+    spans[-1]["end"] = min(source_duration, max(float(spans[-1]["end"]), float(spans[-1]["end"]) + final_tail))
     safety = "transcript_reviewed" if transcript.get("reviewed") is True else "transcript_unreviewed"
-    return spans, safety
+    return spans, safety, joins
 
 
 def silence_keep_spans(report: dict[str, Any], source_duration: float, padding: float, min_clip: float) -> list[dict[str, Any]]:
@@ -564,8 +714,15 @@ def make_talking_head_edl(args: argparse.Namespace) -> None:
         transcript_asset_id = transcript.get("source_asset_id")
         if transcript_asset_id and str(transcript_asset_id) != str(source.get("asset_id")):
             raise SystemExit("transcript.source_asset_id does not match the selected talking-head asset")
-        spans, semantic_safety = transcript_spans(transcript, source_duration, args.pre_roll, args.post_roll)
-        mode_variant = "transcript_driven"
+        spans, semantic_safety, join_details = transcript_spans(
+            transcript,
+            source_duration,
+            args.pre_roll,
+            args.post_roll,
+            args.min_silence_gap,
+            args.final_tail,
+        )
+        mode_variant = "word_timed_transcript" if all(span.get("source_timing") == "word_level" for span in spans) else "transcript_driven"
     elif args.silence_report:
         report = read_json(args.silence_report)
         report_source = report.get("source")
@@ -576,9 +733,16 @@ def make_talking_head_edl(args: argparse.Namespace) -> None:
         spans = silence_keep_spans(report, source_duration, args.silence_padding, args.min_clip)
         semantic_safety = "silence_only_unverified"
         mode_variant = "silence_only_conservative"
+        join_details = []
     else:
         raise SystemExit("provide --transcript or --silence-report")
 
+    if semantic_safety == "transcript_reviewed":
+        boundary_reason = "Reviewed transcript boundary"
+    elif semantic_safety == "transcript_unreviewed":
+        boundary_reason = "Unreviewed local transcript boundary; verify text and timing"
+    else:
+        boundary_reason = "Conservative FFmpeg silence boundary; semantic continuity is unverified"
     clips: list[dict[str, Any]] = []
     joins: list[dict[str, Any]] = []
     for sequence, span in enumerate(spans, start=1):
@@ -597,23 +761,27 @@ def make_talking_head_edl(args: argparse.Namespace) -> None:
                 "status": "matched",
                 "asset_id": source["asset_id"],
                 "path": source["path"],
-                "reason": "Reviewed transcript boundary" if args.transcript else "Conservative FFmpeg silence boundary; semantic continuity is unverified",
+                "reason": boundary_reason,
+                "source_timing": span.get("source_timing", "silence_boundary"),
+                "stage_heading_merged": bool(span.get("stage_heading_merged")),
             }
         )
         if sequence > 1:
             previous = clips[-2]
+            detail = join_details[sequence - 2] if sequence - 2 < len(join_details) else {}
             joins.append(
                 {
                     "previous_clip_id": previous["clip_id"],
                     "current_clip_id": clips[-1]["clip_id"],
                     "removed_gap_sec": round(start - float(previous["source_end"]), 3),
                     "status": "manual_check",
+                    **detail,
                 }
             )
     protocol = read_json(args.protocol)
     formal_gate = "ready_for_human_review" if semantic_safety == "transcript_reviewed" else "preview_only"
     result = {
-        "schema_version": "0.4",
+        "schema_version": "0.5",
         "protocol_id": protocol.get("protocol_id"),
         "edl_id": f"edl-{source['asset_id']}-talking-head",
         "edit_mode": "talking_head_cleanup",
@@ -625,12 +793,32 @@ def make_talking_head_edl(args: argparse.Namespace) -> None:
         "clips": clips,
         "missing": [],
         "join_review": joins,
+        "cut_parameters": {
+            "pre_roll_sec": args.pre_roll,
+            "post_roll_sec": args.post_roll,
+            "min_silence_gap_sec": args.min_silence_gap,
+            "final_tail_sec": args.final_tail,
+        },
+        "transition": {"video": "fade", "duration_sec": 0.18, "audio": "acrossfade"},
         "render_gate": "ready",
         "end_fade_duration": 1.0,
         "human_review_required": True,
         "review_checks": ["No sentence is cut in half", "No final syllable is swallowed", "Removed pauses do not change meaning", "Claims and captions are accurate"],
     }
     write_json(args.out, result)
+    if args.join_report_out:
+        write_json(
+            args.join_report_out,
+            {
+                "schema_version": "0.5",
+                "source_transcript": args.transcript,
+                **result["cut_parameters"],
+                "total_joins": len(joins),
+                "review_required": True,
+                "joins": joins,
+                "pass_rule": "Listen to every join for overlap, swallowed syllables, broken sentences, and removed meaningful pauses.",
+            },
+        )
     print(json.dumps({"out": args.out, "clips": len(clips), "mode_variant": mode_variant, "formal_gate": formal_gate}, ensure_ascii=False))
 
 
@@ -695,7 +883,7 @@ def make_edl(args: argparse.Namespace) -> None:
         clips.append(clip)
 
     result = {
-        "schema_version": "0.4",
+        "schema_version": "0.5",
         "protocol_id": protocol.get("protocol_id"),
         "edl_id": f"edl-{script.get('script_id') or 'draft'}",
         "edit_mode": "scripted_asset_assembly",
@@ -740,8 +928,166 @@ def caption_force_style(render_config: dict[str, Any], profile_name: str) -> str
     return ",".join(f"{key}={value}" for key, value in profile.items() if key in allowed)
 
 
+def caption_timing_windows(caption: str, duration: float, max_chars: int = 16) -> list[dict[str, Any]]:
+    chunks = split_caption_text(caption, max_chars)
+    if not chunks or duration <= 0:
+        return []
+    weights = [max(4, len(chunk)) for chunk in chunks]
+    total_weight = sum(weights)
+    cursor = 0.0
+    windows: list[dict[str, Any]] = []
+    for index, (chunk, weight) in enumerate(zip(chunks, weights)):
+        end = duration if index == len(chunks) - 1 else min(duration, cursor + duration * weight / total_weight)
+        windows.append({"text": chunk, "start": cursor, "end": max(cursor + 0.2, end)})
+        cursor = end
+    return windows
+
+
+def caption_font_path() -> Optional[str]:
+    candidates = [
+        "/System/Library/Fonts/STHeiti Medium.ttc",
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/Supplemental/Songti.ttc",
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/simhei.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+    ]
+    return next((candidate for candidate in candidates if Path(candidate).is_file()), None)
+
+
+def write_caption_overlay(path: Path, caption: str, width: int, height: int, style: str) -> bool:
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return False
+    font_path = caption_font_path()
+    if not font_path:
+        return False
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    clean = " ".join(caption.replace("\n", " ").split()).strip()
+    if not clean:
+        return False
+    font_size = max(22, int(round(width * 0.06)))
+    max_width = int(width * 0.88)
+    while font_size >= max(18, int(width * 0.038)):
+        font = ImageFont.truetype(font_path, font_size)
+        box = draw.textbbox((0, 0), clean, font=font, stroke_width=max(2, width // 270))
+        if box[2] - box[0] <= max_width:
+            break
+        font_size -= 2
+    stroke_width = max(2, width // 270)
+    box = draw.textbbox((0, 0), clean, font=font, stroke_width=stroke_width)
+    text_width = box[2] - box[0]
+    text_height = box[3] - box[1]
+    padding_x = max(12, int(width * 0.03))
+    padding_y = max(8, int(height * 0.012))
+    x = (width - text_width) / 2
+    y = min(height - text_height - padding_y * 3, int(height * 0.82))
+    draw.rounded_rectangle(
+        (x - padding_x, y - padding_y, x + text_width + padding_x, y + text_height + padding_y),
+        radius=max(8, width // 60),
+        fill=(0, 0, 0, 118),
+    )
+    if style == "white_yellow_keyword" and len(clean) >= 6:
+        split_at = max(1, len(clean) - min(6, max(2, len(clean) // 3)))
+        lead, keyword = clean[:split_at], clean[split_at:]
+        draw.text((x, y), lead, font=font, fill=(255, 255, 255, 255), stroke_width=stroke_width, stroke_fill=(0, 0, 0, 230))
+        lead_width = draw.textbbox((0, 0), lead, font=font, stroke_width=stroke_width)[2]
+        draw.text(
+            (x + lead_width, y),
+            keyword,
+            font=font,
+            fill=(255, 214, 74, 255),
+            stroke_width=stroke_width,
+            stroke_fill=(0, 0, 0, 230),
+        )
+    else:
+        fill = (255, 214, 74, 255) if style == "bold_b2b" else (255, 255, 255, 255)
+        draw.text((x, y), clean, font=font, fill=fill, stroke_width=stroke_width, stroke_fill=(0, 0, 0, 230))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(path)
+    return True
+
+
+def global_caption_windows(clips: list[dict[str, Any]], transition_duration: float) -> list[dict[str, Any]]:
+    windows: list[dict[str, Any]] = []
+    cursor = 0.0
+    for index, clip in enumerate(clips):
+        duration = max(0.0, float(clip.get("duration") or 0))
+        output_start = cursor if index == 0 else max(0.0, cursor - transition_duration)
+        for window in caption_timing_windows(str(clip.get("caption") or ""), duration):
+            windows.append(
+                {
+                    "text": window["text"],
+                    "start": output_start + float(window["start"]),
+                    "end": output_start + float(window["end"]),
+                    "clip_id": clip.get("clip_id"),
+                }
+            )
+        cursor = output_start + duration
+    for index in range(len(windows) - 1):
+        if windows[index]["end"] > windows[index + 1]["start"]:
+            windows[index]["end"] = windows[index + 1]["start"]
+    return [window for window in windows if float(window["end"]) - float(window["start"]) >= 0.1]
+
+
+def render_sync_report(
+    edl: dict[str, Any],
+    clips: list[dict[str, Any]],
+    output: Path,
+    actual_duration: float,
+    transition: str,
+    transition_duration: float,
+    audio_transition: str,
+) -> dict[str, Any]:
+    cursor = 0.0
+    timeline: list[dict[str, Any]] = []
+    for index, clip in enumerate(clips):
+        duration = float(clip.get("duration") or 0)
+        output_start = cursor if index == 0 else max(0.0, cursor - transition_duration)
+        output_end = output_start + duration
+        timeline.append(
+            {
+                "clip_id": clip.get("clip_id"),
+                "source_start": clip.get("source_start"),
+                "source_end": clip.get("source_end"),
+                "output_start": round(output_start, 3),
+                "output_end": round(output_end, 3),
+                "caption": str(clip.get("caption") or "")[:80],
+            }
+        )
+        cursor = output_end
+    expected = cursor
+    drift = actual_duration - expected
+    warnings: list[str] = []
+    if abs(drift) > 0.6:
+        warnings.append(f"Output duration drift is {drift:.3f}s; inspect late captions and audio sync.")
+    if audio_transition == "acrossfade":
+        warnings.append("Acrossfade can overlap adjacent speech; listen to every join before approval.")
+    return {
+        "schema_version": "0.5",
+        "edl_id": edl.get("edl_id"),
+        "edit_mode": edl.get("edit_mode"),
+        "output": str(output),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "transition": {"video": transition, "duration_sec": transition_duration, "audio": audio_transition},
+        "duration": {
+            "edl_clip_sum_sec": round(sum(float(clip.get("duration") or 0) for clip in clips), 3),
+            "expected_output_sec": round(expected, 3),
+            "actual_output_sec": round(actual_duration, 3),
+            "drift_sec": round(drift, 3),
+        },
+        "timeline": timeline,
+        "warnings": warnings,
+        "review_points": ["first 2 seconds", "every join", "last 2 seconds", "caption and voice sync after 60 seconds"],
+    }
+
+
 def render_edl(args: argparse.Namespace) -> None:
     ffmpeg = runtime_path("ffmpeg")
+    ffprobe = runtime_path("ffprobe")
     edl = read_json(args.edl)
     index = read_json(args.assets)
     clips = edl.get("clips") or []
@@ -766,14 +1112,44 @@ def render_edl(args: argparse.Namespace) -> None:
     if captions_path and not captions_path.is_file():
         raise SystemExit(f"caption file does not exist: {captions_path}")
     burn_in_available = ffmpeg_filter_available(ffmpeg, "subtitles")
-    if captions_path and args.caption_mode == "burn" and not burn_in_available:
-        raise SystemExit("caption burn-in requires an FFmpeg build with the subtitles/libass filter")
-    burn_captions = bool(captions_path and (args.caption_mode == "burn" or (args.caption_mode == "auto" and burn_in_available)))
-    caption_delivery = "burned_in" if burn_captions else ("sidecar_srt" if captions_path else "none")
+    png_overlay_available = ffmpeg_filter_available(ffmpeg, "overlay") and pillow_available()
+    use_png_overlay = bool(
+        captions_path
+        and args.caption_layout == "single_line_sequence"
+        and args.caption_mode in {"auto", "burn"}
+        and png_overlay_available
+    )
+    use_ass = bool(
+        captions_path
+        and not use_png_overlay
+        and args.caption_mode in {"auto", "burn"}
+        and burn_in_available
+    )
+    if captions_path and args.caption_mode == "burn" and not (use_png_overlay or use_ass):
+        raise SystemExit("caption burn-in requires subtitles/libass or Pillow plus the FFmpeg overlay filter")
+
+    requested_transition = args.transition
+    transition = (
+        "fade"
+        if requested_transition == "auto" and edl.get("edit_mode") == "talking_head_cleanup"
+        else ("none" if requested_transition == "auto" else requested_transition)
+    )
+    durations = [float(clip.get("duration") or 0) for clip in clips]
+    transition_duration = 0.0
+    if transition != "none" and len(clips) > 1 and ffmpeg_filter_available(ffmpeg, "xfade"):
+        transition_duration = min(max(0.03, args.transition_duration), min(durations) / 3)
+    else:
+        transition = "none"
+    audio_transition = args.audio_transition
+    if audio_transition == "auto":
+        audio_transition = "acrossfade" if edl.get("edit_mode") == "talking_head_cleanup" else "acrossfade"
+    if transition == "none":
+        audio_transition = "concat"
+    elif audio_transition == "acrossfade" and not ffmpeg_filter_available(ffmpeg, "acrossfade"):
+        audio_transition = "trim_concat"
 
     command = [ffmpeg, "-y"]
     filters: list[str] = []
-    total_duration = 0.0
     for position, clip in enumerate(clips):
         asset = indexed.get(str(clip["asset_id"]))
         if not asset:
@@ -787,10 +1163,10 @@ def render_edl(args: argparse.Namespace) -> None:
             command.extend(["-loop", "1", "-framerate", str(fps), "-t", str(duration), "-i", str(path)])
         else:
             command.extend(["-ss", str(source_start), "-t", str(duration), "-i", str(path)])
-        total_duration += duration
         filters.append(
             f"[{position}:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},setsar=1,fps={fps},trim=duration={duration},setpts=PTS-STARTPTS[v{position}]"
+            f"crop={width}:{height},setsar=1,fps={fps},trim=duration={duration},"
+            f"settb=AVTB,setpts=PTS-STARTPTS[v{position}]"
         )
         if asset.get("kind") == "video" and asset.get("has_audio"):
             filters.append(
@@ -800,15 +1176,52 @@ def render_edl(args: argparse.Namespace) -> None:
         else:
             filters.append(f"anullsrc=r=48000:cl=stereo,atrim=duration={duration},asetpts=PTS-STARTPTS[a{position}]")
 
-    concat_inputs = "".join(f"[v{position}][a{position}]" for position in range(len(clips)))
-    end_fade_duration = min(max(0.0, float(edl.get("end_fade_duration") or 0)), max(0.0, total_duration / 2))
-    filters.append(f"{concat_inputs}concat=n={len(clips)}:v=1:a=1[vbase][aout]")
-    current_video_label = "vbase"
-    if end_fade_duration > 0:
+    if transition != "none":
+        current_video_label = "v0"
+        elapsed = durations[0]
+        for position in range(1, len(clips)):
+            output_label = f"vx{position}"
+            offset = max(0.0, elapsed - transition_duration)
+            filters.append(
+                f"[{current_video_label}][v{position}]xfade=transition={transition}:"
+                f"duration={transition_duration:.3f}:offset={offset:.3f}[{output_label}]"
+            )
+            current_video_label = output_label
+            elapsed += durations[position] - transition_duration
+        if audio_transition == "acrossfade":
+            current_audio_label = "a0"
+            for position in range(1, len(clips)):
+                output_label = f"ax{position}"
+                filters.append(
+                    f"[{current_audio_label}][a{position}]acrossfade=d={transition_duration:.3f}[{output_label}]"
+                )
+                current_audio_label = output_label
+        else:
+            trimmed_audio: list[str] = []
+            for position, duration in enumerate(durations):
+                audio_duration = duration if position == len(durations) - 1 else max(0.2, duration - transition_duration)
+                label = f"at{position}"
+                filters.append(f"[a{position}]atrim=0:{audio_duration:.3f},asetpts=PTS-STARTPTS[{label}]")
+                trimmed_audio.append(f"[{label}]")
+            filters.append(f"{''.join(trimmed_audio)}concat=n={len(clips)}:v=0:a=1[aconcat]")
+            current_audio_label = "aconcat"
+        total_duration = elapsed
+    else:
+        concat_inputs = "".join(f"[v{position}][a{position}]" for position in range(len(clips)))
+        filters.append(f"{concat_inputs}concat=n={len(clips)}:v=1:a=1[vconcat][aconcat]")
+        current_video_label = "vconcat"
+        current_audio_label = "aconcat"
+        total_duration = sum(durations)
+
+    end_fade_duration = min(
+        max(0.0, float(edl.get("end_fade_duration") or 0)),
+        max(0.0, total_duration / 2),
+    )
+    if end_fade_duration > 0 and not use_png_overlay:
         fade_start = max(0.0, total_duration - end_fade_duration)
         filters.append(f"[{current_video_label}]fade=t=out:st={fade_start}:d={end_fade_duration}:color=black[vfade]")
         current_video_label = "vfade"
-    if burn_captions and captions_path:
+    if use_ass and captions_path:
         subtitle_path = escape_subtitles_path(captions_path)
         style = caption_force_style(render_config, caption_style)
         filters.append(f"[{current_video_label}]subtitles=filename='{subtitle_path}':force_style='{style}'[vout]")
@@ -816,21 +1229,95 @@ def render_edl(args: argparse.Namespace) -> None:
         filters.append(f"[{current_video_label}]null[vout]")
     output = Path(args.out).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = tempfile.TemporaryDirectory(prefix="content-growth-render-", dir=str(output.parent))
+    temporary_dir = Path(temporary.name)
+    base_output = temporary_dir / "base.mp4" if use_png_overlay else output
     command.extend(
         [
             "-filter_complex", ";".join(filters),
-            "-map", "[vout]", "-map", "[aout]",
+            "-map", "[vout]", "-map", f"[{current_audio_label}]",
+            "-t", f"{total_duration:.3f}",
             "-c:v", video_codec, "-preset", "veryfast", "-pix_fmt", "yuv420p",
             "-c:a", audio_codec, "-b:a", "128k", "-movflags", "+faststart",
-            str(output),
+            str(base_output),
         ]
     )
     if args.dry_run:
         print(json.dumps({"command": command}, ensure_ascii=False, indent=2))
+        temporary.cleanup()
         return
-    process = subprocess.run(command, check=False)
-    if process.returncode != 0 or not output.is_file() or output.stat().st_size == 0:
-        raise SystemExit(f"ffmpeg render failed with exit code {process.returncode}")
+    process = subprocess.run(command, capture_output=True, text=True, check=False)
+    if process.returncode != 0 or not base_output.is_file() or base_output.stat().st_size == 0:
+        temporary.cleanup()
+        raise SystemExit((process.stderr or f"ffmpeg render failed with exit code {process.returncode}").strip())
+
+    caption_delivery = "sidecar_srt" if captions_path else "none"
+    caption_style_applied = False
+    if use_png_overlay:
+        windows = global_caption_windows(clips, transition_duration)
+        overlay_files: list[tuple[Path, dict[str, Any]]] = []
+        for position, window in enumerate(windows):
+            overlay_path = temporary_dir / f"caption-{position:03d}.png"
+            if write_caption_overlay(overlay_path, str(window["text"]), width, height, caption_style):
+                overlay_files.append((overlay_path, window))
+        if overlay_files:
+            overlay_command = [ffmpeg, "-y", "-i", str(base_output)]
+            for overlay_path, _ in overlay_files:
+                overlay_command.extend(
+                    ["-loop", "1", "-framerate", str(fps), "-t", f"{total_duration:.3f}", "-i", str(overlay_path)]
+                )
+            overlay_filters: list[str] = []
+            current_label = "0:v"
+            for position, (_, window) in enumerate(overlay_files, start=1):
+                output_label = f"captioned{position}"
+                overlay_filters.append(
+                    f"[{current_label}][{position}:v]overlay=0:0:format=auto:"
+                    f"enable='between(t,{float(window['start']):.3f},{float(window['end']):.3f})'[{output_label}]"
+                )
+                current_label = output_label
+            if end_fade_duration > 0:
+                fade_start = max(0.0, total_duration - end_fade_duration)
+                overlay_filters.append(
+                    f"[{current_label}]fade=t=out:st={fade_start}:d={end_fade_duration}:color=black[vfinal]"
+                )
+                current_label = "vfinal"
+            overlay_command.extend(
+                [
+                    "-filter_complex", ";".join(overlay_filters),
+                    "-map", f"[{current_label}]", "-map", "0:a:0",
+                    "-t", f"{total_duration:.3f}",
+                    "-c:v", video_codec, "-preset", "veryfast", "-pix_fmt", "yuv420p",
+                    "-c:a", "copy", "-movflags", "+faststart", str(output),
+                ]
+            )
+            overlay_process = subprocess.run(overlay_command, capture_output=True, text=True, check=False)
+            if overlay_process.returncode != 0 or not output.is_file() or output.stat().st_size == 0:
+                temporary.cleanup()
+                raise SystemExit((overlay_process.stderr or "PNG caption overlay render failed").strip())
+            caption_delivery = "png_overlay"
+            caption_style_applied = True
+        else:
+            shutil.copyfile(base_output, output)
+    elif use_ass:
+        caption_delivery = "burned_in"
+        caption_style_applied = True
+
+    if not output.is_file() or output.stat().st_size == 0:
+        temporary.cleanup()
+        raise SystemExit("render output was not created")
+    actual_duration = float(probe(output, ffprobe).get("duration") or 0)
+    sync_report_path = Path(args.sync_report_out).expanduser().resolve() if args.sync_report_out else output.with_suffix(".sync-report.json")
+    sync_report = render_sync_report(
+        edl,
+        clips,
+        output,
+        actual_duration,
+        transition,
+        transition_duration,
+        audio_transition,
+    )
+    write_json(str(sync_report_path), sync_report)
+    temporary.cleanup()
     print(
         json.dumps(
             {
@@ -841,7 +1328,12 @@ def render_edl(args: argparse.Namespace) -> None:
                 "caption_delivery": caption_delivery,
                 "captions": str(captions_path) if captions_path else None,
                 "caption_style": caption_style,
-                "caption_style_applied": burn_captions,
+                "caption_style_applied": caption_style_applied,
+                "transition": transition,
+                "transition_duration": round(transition_duration, 3),
+                "audio_transition": audio_transition,
+                "duration": actual_duration,
+                "sync_report": str(sync_report_path),
             },
             ensure_ascii=False,
         )
@@ -882,6 +1374,7 @@ def build_parser() -> argparse.ArgumentParser:
     transcribe.add_argument("--model", default="small")
     transcribe.add_argument("--language", default="zh")
     transcribe.add_argument("--source-asset-id")
+    transcribe.add_argument("--word-timestamps", action="store_true")
     transcribe.set_defaults(func=transcribe_local)
 
     review_transcript = subcommands.add_parser("analyze-transcript")
@@ -897,6 +1390,9 @@ def build_parser() -> argparse.ArgumentParser:
     talking.add_argument("--silence-report")
     talking.add_argument("--pre-roll", type=float, default=0.05)
     talking.add_argument("--post-roll", type=float, default=0.08)
+    talking.add_argument("--min-silence-gap", type=float, default=0.08)
+    talking.add_argument("--final-tail", type=float, default=0.5)
+    talking.add_argument("--join-report-out")
     talking.add_argument("--silence-padding", type=float, default=0.12)
     talking.add_argument("--min-clip", type=float, default=0.35)
     talking.add_argument("--protocol", default=str(DEFAULT_PROTOCOL))
@@ -925,7 +1421,12 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--height", type=int)
     render.add_argument("--captions-srt")
     render.add_argument("--caption-mode", choices=("auto", "sidecar", "burn"), default="auto")
-    render.add_argument("--caption-style", choices=("clean", "bold_b2b"))
+    render.add_argument("--caption-style", choices=("clean", "bold_b2b", "white_yellow_keyword"))
+    render.add_argument("--caption-layout", choices=("standard", "single_line_sequence"), default="standard")
+    render.add_argument("--transition", choices=("auto", "none", "fade"), default="auto")
+    render.add_argument("--transition-duration", type=float, default=0.18)
+    render.add_argument("--audio-transition", choices=("auto", "acrossfade", "trim_concat"), default="auto")
+    render.add_argument("--sync-report-out")
     render.add_argument("--protocol", default=str(DEFAULT_PROTOCOL))
     render.add_argument("--dry-run", action="store_true")
     render.set_defaults(func=render_edl)

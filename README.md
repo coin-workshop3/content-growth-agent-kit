@@ -80,9 +80,9 @@ python3 content_growth.py video projects/my-project --mode material-assembly
 | 口播精剪 | 至少一条有声口播视频 | 检测长停顿、保留呼吸缓冲、生成接缝报告和预览 | 没有人工复核的时间戳转写时只能是 `preview_only` |
 | 素材拼接 | `video-script.json` 和多段本地素材 | 按 Hook / Problem / SceneEmotion / Product / Proof / CTA 标签匹配并渲染 | 正式字幕和连续口播仍需要确认文案或真实转写 |
 
-口播项目可增加 `transcript.reviewed.json`。Agent 根据 `keep/delete` 和句子时间戳生成安全切点；只有 `reviewed: true` 才进入 `ready_for_human_review`。`--auto-transcribe` 调用的是用户本机的 OpenAI Whisper CLI，不上传视频；自动结果保持 `reviewed: false`，仍需人工核对。没有转写时不会假装理解废话或语义，只生成 FFmpeg 静音边界的保守预览。
+口播项目可增加 `transcript.reviewed.json`。Agent 优先使用 `words[]` 词级时间戳，并按 `keep/delete`、pre/post-roll 和最小停顿生成安全切点；只有 `reviewed: true` 才进入 `ready_for_human_review`。`--auto-transcribe` 调用的是用户本机的 OpenAI Whisper CLI，不上传视频；自动结果保持 `reviewed: false`，仍需人工核对。没有转写时不会假装理解废话或语义，只生成 FFmpeg 静音边界的保守预览。
 
-两个模式都会生成标准 `.srt` 字幕。若本机 FFmpeg 带有 `subtitles/libass` 滤镜，默认使用粗体黄色、黑色描边的 `bold_b2b` 样式烧录；否则视频仍能完成，并保留不携带视觉样式的 SRT 旁挂字幕。
+两个模式都会生成标准 `.srt` 字幕。口播精剪默认使用单行白字、黄色关键词和黑色描边；若本机 FFmpeg 带有 `subtitles/libass` 滤镜就直接烧录，若没有但本机有 Pillow，则使用 PNG overlay fallback；两者都不可用时仍保留不携带视觉样式的 SRT 旁挂字幕。口播精剪还会生成 `join-review.json` 和同步报告，叠化、acrossfade 与 1 秒结尾缓出仍需人工听审。
 
 废话分析只标记 Whisper 实际识别到的“嗯 / 呃”和“然后然后 / 就是就是”等明显候选。模型可能漏掉真实口头词，时间范围也只是按句段估算，因此 `automatic_deletion` 永远是 `false`。
 
@@ -120,6 +120,7 @@ python3 skills/auto-edit-local-video/scripts/local_video.py check-runtime
 | 目标 | 可选工具 |
 |---|---|
 | 本地自动语音转写 | OpenAI Whisper CLI（`python3 -m pip install -U openai-whisper`） |
+| 单行字幕 PNG fallback | Pillow（`python3 -m pip install -U Pillow`）和 FFmpeg `overlay` 滤镜 |
 | 更细的逐字时间戳和说话人对齐 | WhisperX |
 | 智能删停顿和气口 | auto-editor |
 | 复杂字幕 | pysubs2 |
@@ -152,7 +153,7 @@ python3 skills/auto-edit-local-video/scripts/local_video.py check-runtime
 
 ## 项目状态
 
-当前开发目标为 `0.4.1-alpha`。GEO 与评分只依赖 Python 标准库；视频基础层依赖用户本机的 `ffmpeg` 与 `ffprobe`。本地 Whisper 转写、人工复核型废话候选和字幕样式已接入；自动删除废话、剪映草稿和高级动效仍未纳入基础层。CI 在 Linux、macOS 和 Windows 上分别验证 Python 3.9 基础流程。
+当前开发目标为 `v0.5.0-alpha`。GEO 与评分只依赖 Python 标准库；视频基础层依赖用户本机的 `ffmpeg` 与 `ffprobe`。本地 Whisper 词级时间戳、人工复核型口播精剪、接缝/同步报告、单行字幕与 PNG overlay fallback 已接入；自动删除废话、剪映草稿和高级动效仍未纳入基础层。CI 在 Linux、macOS 和 Windows 上分别验证 Python 3.9 基础流程。
 
 真实本地 Whisper 联调过程与已知误差见 [`docs/REAL_TRANSCRIPTION_VALIDATION.md`](docs/REAL_TRANSCRIPTION_VALIDATION.md)。
 

@@ -1,6 +1,6 @@
 {
-  "schema_version": "0.4",
-  "protocol_id": "content-growth-base-v0.4",
+  "schema_version": "0.5",
+  "protocol_id": "content-growth-base-v0.5",
   "license_scope": "Apache-2.0 open base methodology",
   "geo": {
     "positioning": "AI answer discovery + platform search + AI parsing + monitoring",
@@ -185,8 +185,8 @@
       "video_codec": "libx264",
       "audio_codec": "aac",
       "talking_head_end_fade_sec": 1.0,
-      "caption_fallback": "sidecar_srt",
-      "caption_burn_in_requires": "ffmpeg subtitles/libass filter",
+      "caption_fallback": "png_overlay_then_sidecar_srt",
+      "caption_burn_in_requires": "ffmpeg subtitles/libass or Pillow plus FFmpeg overlay",
       "default_caption_style": "bold_b2b",
       "caption_styles": {
         "clean": {

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import runpy
 import shutil
 import subprocess
 import sys
@@ -78,6 +79,14 @@ output_dir.mkdir(parents=True, exist_ok=True)
 
 
 def main() -> None:
+    video_module = runpy.run_path(str(ROOT / "skills/auto-edit-local-video/scripts/local_video.py"))
+    assert video_module["display_dimensions"](
+        {"width": 3840, "height": 2160, "side_data_list": [{"rotation": 90}]}
+    ) == (2160, 3840, 90)
+    caption_chunks = video_module["split_caption_text"]("名字、文件名,找到你的文件信息吗?", 16)
+    assert caption_chunks[-1].endswith("?")
+    assert caption_chunks[-1] != "?"
+
     with tempfile.TemporaryDirectory(prefix="content-growth-smoke-") as temp_raw:
         temp = Path(temp_raw)
         doctor_process = run([sys.executable, "content_growth.py", "doctor", "--json"])
@@ -85,6 +94,7 @@ def main() -> None:
         assert doctor["core"]["ready"] is True
         assert doctor["methodology"]["ready"] is True
         assert doctor["captions"]["sidecar_srt"] is True
+        assert "png_overlay" in doctor["captions"]
         setup = json.loads(run([sys.executable, "content_growth.py", "setup", "--json"]).stdout)
         assert setup["automatic_install"] is False
         assert setup["official_guides"]["whisper"].startswith("https://")
@@ -180,6 +190,11 @@ def main() -> None:
                 assert auto_result["formal_gate"] == "preview_only"
                 assert auto_result["caption_entries"] == 2
                 assert Path(auto_result["captions"]).stat().st_size > 0
+                auto_edl = json.loads(Path(auto_result["edl"]).read_text(encoding="utf-8"))
+                assert all(
+                    clip["reason"].startswith("Unreviewed local transcript boundary")
+                    for clip in auto_edl["clips"]
+                )
                 transcribe_result = json.loads(
                     run(
                         [sys.executable, "content_growth.py", "transcribe", str(talking_workspace)],
@@ -215,6 +230,8 @@ def main() -> None:
             assert reviewed_result["formal_gate"] == "ready_for_human_review"
             assert reviewed_result["caption_entries"] > 0
             assert Path(reviewed_result["captions"]).stat().st_size > 0
+            reviewed_edl = json.loads(Path(reviewed_result["edl"]).read_text(encoding="utf-8"))
+            assert all(clip["reason"] == "Reviewed transcript boundary" for clip in reviewed_edl["clips"])
 
             material_workspace = temp / "material-workspace"
             material_media = material_workspace / "media"

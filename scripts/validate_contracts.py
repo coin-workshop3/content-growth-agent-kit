@@ -39,7 +39,7 @@ def main() -> None:
     video = protocol["video"]
     if set((video.get("modes") or {}).keys()) != {"talking_head_cleanup", "scripted_asset_assembly"}:
         raise SystemExit("video protocol must expose exactly the two supported editing modes")
-    if (video.get("render") or {}).get("caption_fallback") != "sidecar_srt":
+    if (video.get("render") or {}).get("caption_fallback") not in {"sidecar_srt", "png_overlay_then_sidecar_srt"}:
         raise SystemExit("video protocol must preserve portable SRT captions when burn-in is unavailable")
     caption_styles = (video.get("render") or {}).get("caption_styles") or {}
     if not {"clean", "bold_b2b"}.issubset(caption_styles):

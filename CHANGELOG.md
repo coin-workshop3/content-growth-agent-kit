@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.5.1-alpha
+
+- Raise standard video quality with protocol-owned libx264 `medium` and CRF 21 settings instead of the previous hard-coded `veryfast` preset.
+- Report the applied video preset and CRF in CLI results so render quality is auditable.
+- Preserve the reviewed-transcript safety boundary: isolated connectors are removed only when a human-reviewed transcript explicitly marks them `keep: false`.
+- Validate the quality patch against an authorized local 4K/60 fps talking-head source without uploading or committing source media.
+
 ## v0.5.0-alpha
 
 - Restore the reviewed talking-head standard with word-timed cuts, stage-heading merge, tunable cut padding, join review, dissolve transitions, audio acrossfade, sync reporting, and a protected final tail.

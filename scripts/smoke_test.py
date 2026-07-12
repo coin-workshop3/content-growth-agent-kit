@@ -230,6 +230,8 @@ def main() -> None:
             assert reviewed_result["formal_gate"] == "ready_for_human_review"
             assert reviewed_result["caption_entries"] > 0
             assert Path(reviewed_result["captions"]).stat().st_size > 0
+            assert reviewed_result["video_preset"] == "medium"
+            assert reviewed_result["video_crf"] == 21
             reviewed_edl = json.loads(Path(reviewed_result["edl"]).read_text(encoding="utf-8"))
             assert all(clip["reason"] == "Reviewed transcript boundary" for clip in reviewed_edl["clips"])
 

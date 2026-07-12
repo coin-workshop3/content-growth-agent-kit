@@ -1106,6 +1106,8 @@ def render_edl(args: argparse.Namespace) -> None:
     height = args.height or int(render_config.get("height", 1920))
     fps = int(render_config.get("fps", 30))
     video_codec = str(render_config.get("video_codec", "libx264"))
+    video_preset = str(render_config.get("video_preset", "medium"))
+    video_crf = min(51, max(0, int(render_config.get("video_crf", 21))))
     audio_codec = str(render_config.get("audio_codec", "aac"))
     caption_style = args.caption_style or str(render_config.get("default_caption_style") or "clean")
     captions_path = Path(args.captions_srt).expanduser().resolve() if args.captions_srt else None
@@ -1237,7 +1239,7 @@ def render_edl(args: argparse.Namespace) -> None:
             "-filter_complex", ";".join(filters),
             "-map", "[vout]", "-map", f"[{current_audio_label}]",
             "-t", f"{total_duration:.3f}",
-            "-c:v", video_codec, "-preset", "veryfast", "-pix_fmt", "yuv420p",
+            "-c:v", video_codec, "-preset", video_preset, "-crf", str(video_crf), "-pix_fmt", "yuv420p",
             "-c:a", audio_codec, "-b:a", "128k", "-movflags", "+faststart",
             str(base_output),
         ]
@@ -1286,7 +1288,7 @@ def render_edl(args: argparse.Namespace) -> None:
                     "-filter_complex", ";".join(overlay_filters),
                     "-map", f"[{current_label}]", "-map", "0:a:0",
                     "-t", f"{total_duration:.3f}",
-                    "-c:v", video_codec, "-preset", "veryfast", "-pix_fmt", "yuv420p",
+                    "-c:v", video_codec, "-preset", video_preset, "-crf", str(video_crf), "-pix_fmt", "yuv420p",
                     "-c:a", "copy", "-movflags", "+faststart", str(output),
                 ]
             )
@@ -1329,6 +1331,8 @@ def render_edl(args: argparse.Namespace) -> None:
                 "captions": str(captions_path) if captions_path else None,
                 "caption_style": caption_style,
                 "caption_style_applied": caption_style_applied,
+                "video_preset": video_preset,
+                "video_crf": video_crf,
                 "transition": transition,
                 "transition_duration": round(transition_duration, 3),
                 "audio_transition": audio_transition,

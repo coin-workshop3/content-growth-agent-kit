@@ -183,6 +183,8 @@
       "height": 1920,
       "fps": 30,
       "video_codec": "libx264",
+      "video_preset": "medium",
+      "video_crf": 21,
       "audio_codec": "aac",
       "talking_head_end_fade_sec": 1.0,
       "caption_fallback": "png_overlay_then_sidecar_srt",

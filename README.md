@@ -153,7 +153,7 @@ python3 skills/auto-edit-local-video/scripts/local_video.py check-runtime
 
 ## 项目状态
 
-当前开发目标为 `v0.5.0-alpha`。GEO 与评分只依赖 Python 标准库；视频基础层依赖用户本机的 `ffmpeg` 与 `ffprobe`。本地 Whisper 词级时间戳、人工复核型口播精剪、接缝/同步报告、单行字幕与 PNG overlay fallback 已接入；自动删除废话、剪映草稿和高级动效仍未纳入基础层。CI 在 Linux、macOS 和 Windows 上分别验证 Python 3.9 基础流程。
+当前开发目标为 `v0.5.1-alpha`。GEO 与评分只依赖 Python 标准库；视频基础层依赖用户本机的 `ffmpeg` 与 `ffprobe`。本地 Whisper 词级时间戳、人工复核型口播精剪、接缝/同步报告、单行字幕与 PNG overlay fallback 已接入；标准渲染使用协议控制的 `medium` 预设与 CRF 21，并在结果中报告实际质量参数。自动删除废话、剪映草稿和高级动效仍未纳入基础层。CI 在 Linux、macOS 和 Windows 上分别验证 Python 3.9 基础流程。
 
 真实本地 Whisper 联调过程与已知误差见 [`docs/REAL_TRANSCRIPTION_VALIDATION.md`](docs/REAL_TRANSCRIPTION_VALIDATION.md)。
 

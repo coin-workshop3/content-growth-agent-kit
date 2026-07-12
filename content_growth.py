@@ -20,7 +20,7 @@ SCORE_SCRIPT = ROOT / "skills/score-enterprise-content/scripts/calculate_score.p
 VIDEO_SCRIPT = ROOT / "skills/auto-edit-local-video/scripts/local_video.py"
 EXAMPLE_DIR = ROOT / "examples/demo-enterprise"
 BASE_PROTOCOL = ROOT / "protocols/base-methodology.json"
-TOOLKIT_VERSION = "0.5.0-alpha"
+TOOLKIT_VERSION = "0.5.1-alpha"
 
 
 def execute(command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -328,6 +328,8 @@ def run_video(script: Path, media: Path, output: Path, *, fast_preview: bool = F
         result["caption_delivery"] = render_result.get("caption_delivery")
         result["caption_style"] = render_result.get("caption_style")
         result["caption_style_applied"] = render_result.get("caption_style_applied")
+        result["video_preset"] = render_result.get("video_preset")
+        result["video_crf"] = render_result.get("video_crf")
     return result
 
 
@@ -493,6 +495,8 @@ def run_talking_head(
         "caption_delivery": render_result.get("caption_delivery"),
         "caption_style": render_result.get("caption_style"),
         "caption_style_applied": render_result.get("caption_style_applied"),
+        "video_preset": render_result.get("video_preset"),
+        "video_crf": render_result.get("video_crf"),
         "transition": render_result.get("transition"),
         "transition_duration": render_result.get("transition_duration"),
         "audio_transition": render_result.get("audio_transition"),

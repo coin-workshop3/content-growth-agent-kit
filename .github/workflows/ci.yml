@@ -23,8 +23,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.9"
       - name: Check Python syntax
@@ -41,15 +41,15 @@ jobs:
     needs: smoke
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.9"
       - name: Build whitelist-only release ZIP
         run: python scripts/build_release.py --out dist/content-growth-agent-kit.zip
       - name: Extract and verify release ZIP
         run: python scripts/verify_release_archive.py dist/content-growth-agent-kit.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: verified-release-zip
           path: |

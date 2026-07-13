@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.0.0-rc.1
+
+- Add an offline `release-check` command that verifies required files, version synchronization, protocols, smoke tests, public demo output, and project initialization.
+- Add deterministic whitelist-only Release ZIP building, privacy scanning, SHA-256 generation, and zero-extraction archive verification.
+- Define the supported Windows/macOS/Linux core, conditional FFmpeg capabilities, and optional Whisper boundary.
+- Add a copy-ready clean-Agent handoff prompt, troubleshooting guide, formal P0/P1 release gates, and structured bug/handoff Issue forms.
+- Remove duplicate pull-request CI runs by limiting push CI to `main`, and validate the exact packaged ZIP in CI.
+- Freeze new features for the RC; data contracts and publication safety gates remain unchanged.
+
 ## v0.5.1-alpha
 
 - Raise standard video quality with protocol-owned libx264 `medium` and CRF 21 settings instead of the previous hard-coded `veryfast` preset.

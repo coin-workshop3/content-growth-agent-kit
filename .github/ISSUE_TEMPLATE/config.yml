@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Releases and verified ZIP assets
+    url: https://github.com/coin-workshop3/content-growth-agent-kit/releases
+    about: Download release candidates and review checksums.
+  - name: Troubleshooting
+    url: https://github.com/coin-workshop3/content-growth-agent-kit/blob/main/docs/TROUBLESHOOTING.md
+    about: Check common setup, FFmpeg, caption, and release-check failures first.

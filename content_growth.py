@@ -18,9 +18,10 @@ ROOT = Path(__file__).resolve().parent
 GEO_SCRIPT = ROOT / "skills/generate-geo-tasks/scripts/generate_geo_tasks.py"
 SCORE_SCRIPT = ROOT / "skills/score-enterprise-content/scripts/calculate_score.py"
 VIDEO_SCRIPT = ROOT / "skills/auto-edit-local-video/scripts/local_video.py"
+RELEASE_CHECK_SCRIPT = ROOT / "scripts/release_check.py"
 EXAMPLE_DIR = ROOT / "examples/demo-enterprise"
 BASE_PROTOCOL = ROOT / "protocols/base-methodology.json"
-TOOLKIT_VERSION = "0.5.1-alpha"
+TOOLKIT_VERSION = "1.0.0-rc.1"
 
 
 def execute(command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -107,7 +108,15 @@ def setup_report() -> dict[str, Any]:
 
 
 def doctor_report() -> dict[str, Any]:
-    required_files = [ROOT / "AGENTS.md", GEO_SCRIPT, SCORE_SCRIPT, VIDEO_SCRIPT]
+    required_files = [
+        ROOT / "AGENTS.md",
+        ROOT / "README.md",
+        ROOT / "docs/AGENT_HANDOFF.md",
+        GEO_SCRIPT,
+        SCORE_SCRIPT,
+        VIDEO_SCRIPT,
+        RELEASE_CHECK_SCRIPT,
+    ]
     ffmpeg = command_available("ffmpeg")
     ffprobe = command_available("ffprobe")
     protocol = json.loads(BASE_PROTOCOL.read_text(encoding="utf-8")) if BASE_PROTOCOL.is_file() else {}
@@ -222,6 +231,17 @@ def command_setup(args: argparse.Namespace) -> None:
         if not step["ready"]:
             print(f"    {step['hint']}")
     print(f"  Privacy: {report['privacy']}")
+
+
+def command_release_check(args: argparse.Namespace) -> None:
+    command = [sys.executable, str(RELEASE_CHECK_SCRIPT)]
+    if args.core_only:
+        command.append("--core-only")
+    if args.json:
+        command.append("--json")
+    if args.out:
+        command.extend(["--out", args.out])
+    execute(command)
 
 
 def run_geo(profile: Path, output: Path) -> None:
@@ -839,6 +859,12 @@ def build_parser() -> argparse.ArgumentParser:
     setup = subcommands.add_parser("setup", help="Show platform-specific setup guidance without installing anything")
     setup.add_argument("--json", action="store_true")
     setup.set_defaults(func=command_setup)
+
+    release_check = subcommands.add_parser("release-check", help="Verify a clean checkout or release ZIP offline")
+    release_check.add_argument("--core-only", action="store_true", help="Skip the full smoke test and video demo")
+    release_check.add_argument("--json", action="store_true")
+    release_check.add_argument("--out", help="Also write the JSON report to this path")
+    release_check.set_defaults(func=command_release_check)
 
     demo = subcommands.add_parser("demo", help="Run a synthetic end-to-end demonstration")
     demo.add_argument("--out", default="demo-output")

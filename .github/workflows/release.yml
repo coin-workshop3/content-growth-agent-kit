@@ -1,0 +1,42 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: verify and publish release assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Build versioned release ZIP and SHA-256
+        run: python scripts/build_release.py
+      - name: Verify tag, checksum, extraction, and release-check
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          python scripts/verify_release_archive.py "dist/content-growth-agent-kit-${GITHUB_REF_NAME}.zip" --expect-version "$VERSION"
+      - name: Publish verified assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          EXTRA_ARGS=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            EXTRA_ARGS+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/content-growth-agent-kit-${GITHUB_REF_NAME}.zip" \
+            "dist/content-growth-agent-kit-${GITHUB_REF_NAME}.zip.sha256" \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            "${EXTRA_ARGS[@]}"

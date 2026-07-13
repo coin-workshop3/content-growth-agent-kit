@@ -1,0 +1,95 @@
+name: Agent handoff report
+description: Record a clean-computer or clean-Agent onboarding result
+title: "[Handoff]: "
+labels: ["user-test"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use the prompt in `docs/AGENT_HANDOFF.md`. Report only sanitized environment facts and synthetic-demo results.
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent and version
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+    validations:
+      required: true
+  - type: dropdown
+    id: ffmpeg
+    attributes:
+      label: FFmpeg state before the test
+      options:
+        - Already installed
+        - Not installed
+        - Unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: core_check
+    attributes:
+      label: Core release-check result
+      options:
+        - Passed
+        - Failed
+    validations:
+      required: true
+  - type: dropdown
+    id: handoff
+    attributes:
+      label: Demo and init result
+      options:
+        - Both passed without help
+        - Passed after Agent correction
+        - Failed
+    validations:
+      required: true
+  - type: dropdown
+    id: full_check
+    attributes:
+      label: Full release-check result
+      description: Run this only when FFmpeg and ffprobe already exist.
+      options:
+        - Passed
+        - Failed
+        - Not run because FFmpeg was unavailable
+    validations:
+      required: true
+  - type: textarea
+    id: first_blocker
+    attributes:
+      label: First blocker or confusing step
+      description: Write “none” when there was no blocker.
+    validations:
+      required: true
+  - type: textarea
+    id: sanitized_report
+    attributes:
+      label: Sanitized result summary
+      description: Do not attach source media, customer data, transcripts, credentials, or personal paths.
+    validations:
+      required: true
+  - type: checkboxes
+    id: clean_environment
+    attributes:
+      label: Test integrity
+      options:
+        - label: This used a new checkout or extraction and did not reuse developer outputs.
+          required: true
+        - label: I removed private paths and data from this report.
+          required: true

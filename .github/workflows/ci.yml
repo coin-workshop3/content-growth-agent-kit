@@ -2,7 +2,14 @@ name: ci
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -26,3 +33,27 @@ jobs:
         run: python scripts/validate_contracts.py
       - name: Run smoke tests
         run: python scripts/smoke_test.py
+      - name: Verify clean Agent handoff path
+        run: python content_growth.py release-check --core-only
+
+  package:
+    name: verify release ZIP
+    needs: smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Build whitelist-only release ZIP
+        run: python scripts/build_release.py --out dist/content-growth-agent-kit.zip
+      - name: Extract and verify release ZIP
+        run: python scripts/verify_release_archive.py dist/content-growth-agent-kit.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-release-zip
+          path: |
+            dist/content-growth-agent-kit.zip
+            dist/content-growth-agent-kit.zip.sha256
+          if-no-files-found: error
+          retention-days: 14

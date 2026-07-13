@@ -1,0 +1,87 @@
+name: Bug report
+description: Report a reproducible failure in a supported workflow
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not upload customer data, source media, transcripts, secrets, environment variables, or private paths. Prefer a synthetic reproduction.
+  - type: input
+    id: version
+    attributes:
+      label: Toolkit version
+      description: Output of `content_growth.py --version`.
+      placeholder: 1.0.0-rc.1
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent and version
+      placeholder: Codex desktop / Claude Code / other file-based agent
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: Python 3.11.9
+    validations:
+      required: true
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      description: Maintainers assign the final P0/P1/P2 severity.
+      options:
+        - Cannot start or complete the core GEO/score flow
+        - Release ZIP or release-check fails
+        - Supported video draft flow fails
+        - Incorrect or unsafe output/gate
+        - Optional dependency or documentation problem
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use synthetic inputs and include the exact commands.
+      placeholder: |
+        1. Downloaded ...
+        2. Ran ...
+        3. Observed ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reports
+    attributes:
+      label: Sanitized doctor and release-check results
+      description: Remove usernames, private paths, customer facts, media names, and secrets.
+      render: shell
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Privacy confirmation
+      options:
+        - label: I removed private media, transcripts, customer data, credentials, and personal paths.
+          required: true

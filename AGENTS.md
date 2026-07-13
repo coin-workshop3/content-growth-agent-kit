@@ -17,7 +17,7 @@ This repository is an agent-native toolkit, not a hosted platform. Keep enterpri
 - Preserve JSON input/output contracts. Add a schema version when changing a contract.
 - Run the relevant script and its smoke test after changing behavior.
 - Keep the toolkit usable with Python 3.9+ standard library. FFmpeg/ffprobe are optional dependencies used only by video operations.
-- Prefer `python3 content_growth.py doctor|setup|demo|init|run|video|transcribe|review-transcript` for user-facing workflows; keep lower-level skill scripts available for agents and debugging.
+- Prefer `python3 content_growth.py doctor|setup|release-check|demo|init|run|video|transcribe|review-transcript` for user-facing workflows; keep lower-level skill scripts available for agents and debugging.
 - For local video, run `content_growth.py video <project> --mode auto` unless the user explicitly chooses `talking-head` or `material-assembly`. Never present silence-only talking-head output as sentence-safe semantic cleanup.
 - Run automatic transcription only with explicit user intent and an already-installed local provider. Never upload media, auto-install a model/runtime, or mark an automatic transcript reviewed.
 - Treat filler and repetition detection as review candidates only. Never turn estimated candidate timestamps into automatic deletions.

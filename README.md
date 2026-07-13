@@ -12,7 +12,7 @@
 
 > 核心原则：企业事实可核验，媒体留在本机，所有发布动作必须经过人工确认。
 
-[快速开始](#三步开始) · [功能说明](#30-秒看懂) · [视频工作流](#两个剪辑标准) · [版本下载](https://github.com/coin-workshop3/content-growth-agent-kit/releases)
+[快速开始](#三步开始) · [Agent 交接](docs/AGENT_HANDOFF.md) · [支持矩阵](docs/SUPPORT_MATRIX.md) · [故障排查](docs/TROUBLESHOOTING.md) · [版本下载](https://github.com/coin-workshop3/content-growth-agent-kit/releases)
 
 ## 30 秒看懂
 
@@ -46,11 +46,12 @@ git clone https://github.com/coin-workshop3/content-growth-agent-kit.git
 cd content-growth-agent-kit
 python3 content_growth.py doctor
 python3 content_growth.py setup
+python3 content_growth.py release-check --core-only
 ```
 
 也可以在 GitHub 选择 **Download ZIP**，解压后进入目录运行上述 Python 命令，不要求安装 Git。
 
-`doctor` 会说明当前机器能运行哪些能力；`setup` 只给出当前系统的安装引导，不会自动安装软件。
+Windows 可以把 `python3` 替换为 `py -3` 或 PATH 中的 `python`。`doctor` 会说明当前机器能运行哪些能力；`setup` 只给出当前系统的安装引导，不会自动安装软件；`release-check --core-only` 会离线验证下载包、协议、demo 和项目初始化主路径。
 
 ### 2. 跑通公开演示
 
@@ -65,10 +66,12 @@ python3 content_growth.py demo
 在 Codex、Claude Code 或其他文件型 Agent 中打开仓库，然后发送：
 
 ```text
-读取 AGENTS.md 和 README.md，运行环境检查与公开 demo，
-告诉我当前机器可用的能力、缺少的依赖和下一步命令。
-不要上传媒体，不要自动发布。
+读取 AGENTS.md、README.md 和 docs/AGENT_HANDOFF.md，
+按照 Agent handoff 的首次验收流程完成环境检查、release-check、公开 demo 和项目初始化。
+不要自动安装依赖、上传媒体或发布内容，最后汇报每条命令的结果和下一步。
 ```
+
+需要 Agent 自行下载仓库时，直接复制 [`docs/AGENT_HANDOFF.md`](docs/AGENT_HANDOFF.md) 中包含 GitHub 链接的完整提示词。
 
 ## 创建自己的项目
 
@@ -180,7 +183,7 @@ python3 skills/auto-edit-local-video/scripts/local_video.py check-runtime
 - `protocols/base-methodology.json`：开源基础 GEO、评分和视频协议。
 - `schemas/`：企业资料、评分、脚本、素材索引、GEO 任务和 EDL 数据契约。
 - `skills/`：Agent 工作流和底层执行脚本。
-- `content_growth.py`：用户入口，提供 `doctor/setup/demo/init/run/video/transcribe/review-transcript`。
+- `content_growth.py`：用户入口，提供 `doctor/setup/release-check/demo/init/run/video/transcribe/review-transcript`。
 - `AGENTS.md` / `CLAUDE.md`：Codex 和 Claude Code 的入口说明。
 
 ## Agent 最小提示词
@@ -203,13 +206,20 @@ python3 skills/auto-edit-local-video/scripts/local_video.py check-runtime
 - 所有视频草稿都保留 `blocked_pending_human_review` 发布门。
 - 公开仓库只包含通用代码、协议、合成示例和文档，不包含客户数据或本地调试素材。
 
+## 稳定性与支持
+
+- [`docs/SUPPORT_MATRIX.md`](docs/SUPPORT_MATRIX.md)：Windows、macOS、Linux 和可选 Whisper 的明确支持范围。
+- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)：Python、FFmpeg、字幕、Whisper 和 release-check 排障。
+- [`docs/RELEASE_ACCEPTANCE.md`](docs/RELEASE_ACCEPTANCE.md)：P0/P1 定义、Release ZIP 验证和正式版晋级标准。
+- GitHub Release 会提供经过 CI 从零解压验证的 ZIP 与 SHA-256；优先下载该资产，而不是不带校验和的自动 Source code 链接。
+
 ## English summary
 
 Content Growth Agent Kit is a local-first, agent-native toolkit for **Generative Engine Optimization (GEO)**, **B2B content scoring**, and **FFmpeg-based talking-head video editing**. It is designed for Codex, Claude Code, and other file-based AI agents. The deterministic GEO and scoring paths require only Python 3.9+; video drafting uses local FFmpeg, with optional local Whisper transcription. Source media stays on the user's machine, and every publishing decision remains human-controlled.
 
 ## 项目状态
 
-当前开发目标为 `v0.5.1-alpha`。GEO 与评分只依赖 Python 标准库；视频基础层依赖用户本机的 `ffmpeg` 与 `ffprobe`。本地 Whisper 词级时间戳、人工复核型口播精剪、接缝/同步报告、单行字幕与 PNG overlay fallback 已接入；标准渲染使用协议控制的 `medium` 预设与 CRF 21，并在结果中报告实际质量参数。自动删除废话、剪映草稿和高级动效仍未纳入基础层。CI 在 Linux、macOS 和 Windows 上分别验证 Python 3.9 基础流程。
+当前开发目标为 `v1.0.0-rc.1`。稳定范围包括三平台 Python 核心、GEO、评分、缺少 FFmpeg 时的安全降级，以及装有 FFmpeg 时的基础视频草稿；本地 Whisper 保持可选能力，macOS 之外仍需要更多真实素材验收。Release Candidate 通过仓库自动准入后，还需 3–5 个全新 Agent/电脑完成交接，才能晋级正式 `v1.0.0`。
 
 真实本地 Whisper 联调过程与已知误差见 [`docs/REAL_TRANSCRIPTION_VALIDATION.md`](docs/REAL_TRANSCRIPTION_VALIDATION.md)。
 
